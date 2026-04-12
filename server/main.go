@@ -28,6 +28,7 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	registerPaymentRoutes(router)
 	registerFuelAndTerminalRoutes(router)
 
 	port := os.Getenv("PORT")
