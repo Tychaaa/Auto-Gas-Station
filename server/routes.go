@@ -6,8 +6,27 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// TODO(Тимофей): маршруты создания транзакции и оплаты; подключение БД/общего хранилища.
+// TODO(Тимофей): подключение SQLite и реальные адаптеры Vendotek / АТОЛ
 // TODO(Артём): реализация отпуска топлива и сервисного контура (см. transaction.go: BeginFueling и др.).
+
+// registerPaymentRoutes — контур транзакции / оплаты / фискализации.
+func registerPaymentRoutes(r *gin.Engine) {
+	v1 := r.Group("/api/v1")
+
+	v1.POST("/transactions", notImplemented("transactions create"))
+	v1.GET("/transactions/:id", notImplemented("transactions get"))
+
+	tx := v1.Group("/transactions/:id")
+	{
+		tx.PUT("/selection", notImplemented("transactions selection"))
+		tx.POST("/payment/start", notImplemented("payment start"))
+		tx.POST("/payment/approve", notImplemented("payment approve"))
+		tx.POST("/payment/decline", notImplemented("payment decline"))
+		tx.POST("/fiscalization/start", notImplemented("fiscalization start"))
+		tx.POST("/fiscalization/complete", notImplemented("fiscalization complete"))
+		tx.POST("/fiscalization/fail", notImplemented("fiscalization fail"))
+	}
+}
 
 func registerFuelAndTerminalRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
