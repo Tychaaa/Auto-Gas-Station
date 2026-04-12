@@ -38,6 +38,17 @@ const (
 	FiscalStatusFailed  FiscalStatus = "failed"
 )
 
+// FuelingStatus — подэтап отпуска топлива при TransactionStatusFueling.
+type FuelingStatus string
+
+const (
+	FuelingStatusNone                    FuelingStatus = "none"
+	FuelingStatusStarting                FuelingStatus = "starting"
+	FuelingStatusDispensing              FuelingStatus = "dispensing"
+	FuelingStatusCompletedWaitingFiscal  FuelingStatus = "completed_waiting_fiscal"
+	FuelingStatusFailed                  FuelingStatus = "failed"
+)
+
 // Transaction — данные заказа и текущие статусы проведения.
 type Transaction struct {
 	ID            string
@@ -54,6 +65,13 @@ type Transaction struct {
 	ReceiptNumber string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
+	// Топливный контур (после оплаты, до вызова MarkFiscalizing со стороны кассы).
+	FuelingStatus     FuelingStatus
+	FuelingError      string
+	FuelingSessionID  string
+	DispensedLiters   float64
+	DispenseComplete  bool
+	DispensePartial   bool
 }
 
 // ValidateSelection проверяет топливо и что задан ровно один вариант заказа (сумма, литры или пресет).
@@ -140,7 +158,96 @@ func (t *Transaction) MarkPaymentFailed(msg string) error {
 	return nil
 }
 
-// TODO(Артём): отпуск топлива, состояние fueling, фактический объём.
+// BeginFueling — переход paid -> fueling; sessionID выдаётся API отпуска (или заглушкой в HTTP-слое).
+func (t *Transaction) BeginFueling(sessionID string) error {
+	if t.Status != TransactionStatusPaid {
+		return errors.New("fueling can only be started from paid")
+	}
+	if sessionID == "" {
+		return errors.New("fueling session id is required")
+	}
+	t.Status = TransactionStatusFueling
+	t.FuelingStatus = FuelingStatusStarting
+	t.FuelingSessionID = sessionID
+	t.FuelingError = ""
+	t.DispensedLiters = 0
+	t.DispenseComplete = false
+	t.DispensePartial = false
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// MarkFuelingDispensing — после подтверждения старта от API: starting -> dispensing.
+func (t *Transaction) MarkFuelingDispensing() error {
+	if t.Status != TransactionStatusFueling {
+		return errors.New("dispensing is only allowed during fueling")
+	}
+	if t.FuelingStatus != FuelingStatusStarting {
+		return errors.New("dispensing can only start from fueling starting state")
+	}
+	t.FuelingStatus = FuelingStatusDispensing
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// UpdateDispensedLiters — текущий накопленный объём налива (не меняет TransactionStatus: ждём фискализацию отдельно).
+func (t *Transaction) UpdateDispensedLiters(liters float64) error {
+	if t.Status != TransactionStatusFueling {
+		return errors.New("dispensed liters update is only allowed during fueling")
+	}
+	if t.FuelingStatus != FuelingStatusDispensing {
+		return errors.New("dispensed liters can only be updated while dispensing")
+	}
+	if liters < 0 {
+		return errors.New("dispensed liters cannot be negative")
+	}
+	t.DispensedLiters = liters
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// CompleteFuelingDispense — фиксирует факт отпуска; Status остаётся fueling до MarkFiscalizing (кассовый контур).
+func (t *Transaction) CompleteFuelingDispense(actualLiters float64, partial bool) error {
+	if t.Status != TransactionStatusFueling {
+		return errors.New("complete dispense is only allowed during fueling")
+	}
+	if t.FuelingStatus != FuelingStatusDispensing {
+		return errors.New("complete dispense requires active dispensing state")
+	}
+	if actualLiters < 0 {
+		return errors.New("actual liters cannot be negative")
+	}
+	t.DispensedLiters = actualLiters
+	t.DispenseComplete = true
+	t.DispensePartial = partial
+	t.FuelingStatus = FuelingStatusCompletedWaitingFiscal
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// MarkFuelingFailed — ошибка налива/API: fueling -> failed.
+func (t *Transaction) MarkFuelingFailed(msg string) error {
+	if t.Status != TransactionStatusFueling {
+		return errors.New("fueling failure is only allowed from fueling")
+	}
+	t.Status = TransactionStatusFailed
+	t.FuelingStatus = FuelingStatusFailed
+	t.FuelingError = msg
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// AbortFuelingFromPaid — оплачено, но отпуск нельзя начать (например API недоступен): paid -> failed.
+func (t *Transaction) AbortFuelingFromPaid(msg string) error {
+	if t.Status != TransactionStatusPaid {
+		return errors.New("abort fueling from paid is only allowed from paid")
+	}
+	t.Status = TransactionStatusFailed
+	t.FuelingStatus = FuelingStatusFailed
+	t.FuelingError = msg
+	t.UpdatedAt = time.Now()
+	return nil
+}
 
 // MarkFiscalizing — старт фискализации после этапа fueling.
 func (t *Transaction) MarkFiscalizing() error {
