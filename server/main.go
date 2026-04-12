@@ -28,6 +28,8 @@ func main() {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})
 	})
 
+	registerFuelAndTerminalRoutes(router)
+
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
