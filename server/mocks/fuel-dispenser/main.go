@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"github.com/joho/godotenv"
 )
 
 type fuelingStartRequest struct {
@@ -30,6 +31,10 @@ type fuelingStartResponse struct {
 var mockFuelingCounter uint64
 
 func main() {
+	if err := godotenv.Load(); err != nil {
+		log.Println("no .env file found, using system environment")
+	}
+
 	mode := os.Getenv("GIN_MODE")
 	if mode == "" {
 		mode = gin.DebugMode
