@@ -13,7 +13,7 @@ import (
 func registerPaymentRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
 
-	v1.POST("/transactions", notImplemented("transactions create"))
+	v1.POST("/transactions", createTransactionHandler)
 	v1.GET("/transactions/:id", notImplemented("transactions get"))
 
 	tx := v1.Group("/transactions/:id")
