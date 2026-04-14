@@ -21,7 +21,7 @@ func registerPaymentRoutes(r *gin.Engine) {
 	// Действия по конкретной транзакции
 	tx := v1.Group("/transactions/:id")
 	{
-		tx.PUT("/selection", notImplemented("transactions selection"))
+		tx.PUT("/selection", updateSelectionHandler)
 		tx.POST("/payment/start", notImplemented("payment start"))
 		tx.POST("/payment/approve", notImplemented("payment approve"))
 		tx.POST("/payment/decline", notImplemented("payment decline"))

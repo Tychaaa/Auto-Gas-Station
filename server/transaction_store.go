@@ -1,11 +1,15 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 )
+
+// Ошибка когда транзакция по ID не найдена
+var ErrTransactionNotFound = errors.New("transaction not found")
 
 // TransactionStore хранит транзакции в памяти
 type TransactionStore struct {
@@ -48,6 +52,30 @@ func (s *TransactionStore) Get(id string) (*Transaction, bool) {
 	}
 	// Возвращаем копию чтобы внешние изменения не затронули хранилище
 	return cloneTransaction(tx), true
+}
+
+func (s *TransactionStore) Update(id string, apply func(*Transaction) error) (*Transaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Ищем текущую транзакцию по ID
+	tx, ok := s.items[id]
+	if !ok {
+		return nil, ErrTransactionNotFound
+	}
+
+	// Работаем с копией чтобы не испортить исходные данные при ошибке
+	next := *tx
+	// Применяем изменения из внешней функции
+	if err := apply(&next); err != nil {
+		return nil, err
+	}
+
+	// Фиксируем время обновления и сохраняем новую версию
+	next.UpdatedAt = time.Now()
+	s.items[id] = &next
+	// Возвращаем копию обновленной транзакции
+	return cloneTransaction(&next), nil
 }
 
 func (s *TransactionStore) nextID() string {
