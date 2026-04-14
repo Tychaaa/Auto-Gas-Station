@@ -9,16 +9,19 @@ import (
 // TODO(Тимофей): подключение SQLite и реальные адаптеры Vendotek / АТОЛ
 // TODO(Артём): реализация отпуска топлива и сервисного контура (см. transaction.go: BeginFueling и др.).
 
-// registerPaymentRoutes — контур транзакции / оплаты / фискализации.
+// Роуты для создания транзакции, оплаты и фискализации
 func registerPaymentRoutes(r *gin.Engine) {
+	// Базовая группа API версии v1
 	v1 := r.Group("/api/v1")
 
+	// Основные операции с транзакцией
 	v1.POST("/transactions", createTransactionHandler)
-	v1.GET("/transactions/:id", notImplemented("transactions get"))
+	v1.GET("/transactions/:id", getTransactionHandler)
 
+	// Действия по конкретной транзакции
 	tx := v1.Group("/transactions/:id")
 	{
-		tx.PUT("/selection", notImplemented("transactions selection"))
+		tx.PUT("/selection", updateSelectionHandler)
 		tx.POST("/payment/start", notImplemented("payment start"))
 		tx.POST("/payment/approve", notImplemented("payment approve"))
 		tx.POST("/payment/decline", notImplemented("payment decline"))
@@ -29,8 +32,10 @@ func registerPaymentRoutes(r *gin.Engine) {
 }
 
 func registerFuelAndTerminalRoutes(r *gin.Engine) {
+	// Базовая группа API версии v1
 	v1 := r.Group("/api/v1")
 
+	// Роуты процесса отпуска топлива
 	tx := v1.Group("/transactions/:id")
 	{
 		tx.POST("/fueling/start", notImplemented("fueling start"))
@@ -41,6 +46,7 @@ func registerFuelAndTerminalRoutes(r *gin.Engine) {
 		tx.POST("/fueling/fail", notImplemented("fueling fail"))
 	}
 
+	// Роуты терминала самообслуживания
 	term := v1.Group("/terminal")
 	{
 		term.POST("/heartbeat", notImplemented("terminal heartbeat"))
@@ -51,6 +57,7 @@ func registerFuelAndTerminalRoutes(r *gin.Engine) {
 }
 
 func notImplemented(name string) gin.HandlerFunc {
+	// Общая заглушка для роутов, которые пока не реализованы
 	return func(c *gin.Context) {
 		c.JSON(http.StatusNotImplemented, gin.H{
 			"error": "not implemented",

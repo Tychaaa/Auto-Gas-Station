@@ -1,13 +1,17 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
-// TransactionStore хранит транзакции в памяти.
+// Ошибка когда транзакция по ID не найдена
+var ErrTransactionNotFound = errors.New("transaction not found")
+
+// TransactionStore хранит транзакции в памяти
 type TransactionStore struct {
 	mu      sync.RWMutex
 	items   map[string]*Transaction
@@ -24,15 +28,15 @@ func (s *TransactionStore) Create(tx *Transaction) *Transaction {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	// Фиксируем время создания и обновления.
+	// Фиксируем время создания и обновления
 	now := time.Now()
-	// Делаем копию, чтобы не менять исходный объект.
+	// Делаем копию чтобы не менять исходный объект
 	copyTx := *tx
 	copyTx.ID = s.nextID()
 	copyTx.CreatedAt = now
 	copyTx.UpdatedAt = now
 
-	// Сохраняем копию в хранилище.
+	// Сохраняем копию в хранилище
 	s.items[copyTx.ID] = &copyTx
 	return cloneTransaction(&copyTx)
 }
@@ -41,17 +45,41 @@ func (s *TransactionStore) Get(id string) (*Transaction, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	// Ищем транзакцию по ID.
+	// Ищем транзакцию по ID
 	tx, ok := s.items[id]
 	if !ok {
 		return nil, false
 	}
-	// Возвращаем копию, чтобы внешние изменения не затронули хранилище.
+	// Возвращаем копию чтобы внешние изменения не затронули хранилище
 	return cloneTransaction(tx), true
 }
 
+func (s *TransactionStore) Update(id string, apply func(*Transaction) error) (*Transaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	// Ищем текущую транзакцию по ID
+	tx, ok := s.items[id]
+	if !ok {
+		return nil, ErrTransactionNotFound
+	}
+
+	// Работаем с копией чтобы не испортить исходные данные при ошибке
+	next := *tx
+	// Применяем изменения из внешней функции
+	if err := apply(&next); err != nil {
+		return nil, err
+	}
+
+	// Фиксируем время обновления и сохраняем новую версию
+	next.UpdatedAt = time.Now()
+	s.items[id] = &next
+	// Возвращаем копию обновленной транзакции
+	return cloneTransaction(&next), nil
+}
+
 func (s *TransactionStore) nextID() string {
-	// Увеличиваем счетчик атомарно, чтобы ID не повторялись.
+	// Увеличиваем счетчик атомарно чтобы ID не повторялись
 	n := atomic.AddUint64(&s.counter, 1)
 	return fmt.Sprintf("tx_%d_%06d", time.Now().UnixNano(), n)
 }
@@ -60,7 +88,7 @@ func cloneTransaction(tx *Transaction) *Transaction {
 	if tx == nil {
 		return nil
 	}
-	// Возвращаем отдельную копию структуры.
+	// Возвращаем отдельную копию структуры
 	copyTx := *tx
 	return &copyTx
 }
