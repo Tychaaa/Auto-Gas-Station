@@ -10,7 +10,7 @@ import (
 
 var transactionStore = NewTransactionStore()
 
-// createTransactionRequest описывает данные для создания транзакции.
+// Данные запроса на создание транзакции
 type createTransactionRequest struct {
 	FuelType  string  `json:"fuelType"`
 	OrderMode string  `json:"orderMode"`
@@ -21,7 +21,8 @@ type createTransactionRequest struct {
 
 func createTransactionHandler(c *gin.Context) {
 	var req createTransactionRequest
-	// Читаем JSON. Пустое тело допускаем, остальные ошибки считаем некорректным запросом.
+	// Читаем JSON из тела запроса
+	// Пустое тело допускаем, остальные ошибки считаем некорректным запросом
 	if err := c.ShouldBindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
 		c.JSON(http.StatusBadRequest, gin.H{
 			"error": "invalid request body",
@@ -29,7 +30,7 @@ func createTransactionHandler(c *gin.Context) {
 		return
 	}
 
-	// Создаем новую транзакцию со стартовыми статусами.
+	// Создаем новую транзакцию со стартовыми статусами
 	tx := &Transaction{
 		FuelType:      req.FuelType,
 		OrderMode:     req.OrderMode,
@@ -42,7 +43,29 @@ func createTransactionHandler(c *gin.Context) {
 		FuelingStatus: FuelingStatusNone,
 	}
 
-	// Сохраняем транзакцию и возвращаем ее клиенту.
+	// Сохраняем транзакцию и возвращаем ее клиенту
 	created := transactionStore.Create(tx)
 	c.JSON(http.StatusCreated, created)
+}
+
+func getTransactionHandler(c *gin.Context) {
+	// Берем id транзакции из адреса запроса
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "transaction id is required",
+		})
+		return
+	}
+
+	tx, ok := transactionStore.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "transaction not found",
+		})
+		return
+	}
+
+	// Возвращаем найденную транзакцию
+	c.JSON(http.StatusOK, tx)
 }
