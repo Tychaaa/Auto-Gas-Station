@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// TransactionStatus — этап жизненного цикла транзакции на терминале.
+// Этап жизненного цикла транзакции на терминале
 type TransactionStatus string
 
 const (
@@ -18,7 +18,7 @@ const (
 	TransactionStatusFailed         TransactionStatus = "failed"
 )
 
-// PaymentStatus — результат/стадия оплаты (отдельно от этапа транзакции).
+// Результат и стадия оплаты отдельно от этапа транзакции
 type PaymentStatus string
 
 const (
@@ -28,7 +28,7 @@ const (
 	PaymentStatusDeclined PaymentStatus = "declined"
 )
 
-// FiscalStatus — стадия фискализации и печати чека.
+// Стадия фискализации и печати чека
 type FiscalStatus string
 
 const (
@@ -38,7 +38,7 @@ const (
 	FiscalStatusFailed  FiscalStatus = "failed"
 )
 
-// FuelingStatus — подэтап отпуска топлива при TransactionStatusFueling.
+// Подэтап отпуска топлива при статусе TransactionStatusFueling
 type FuelingStatus string
 
 const (
@@ -49,11 +49,11 @@ const (
 	FuelingStatusFailed                  FuelingStatus = "failed"
 )
 
-// Transaction — данные заказа и текущие статусы проведения.
+// Данные заказа и текущие статусы проведения
 type Transaction struct {
 	ID            string
 	FuelType      string
-	OrderMode     string // amount | liters | preset
+	OrderMode     string // Способ заказа amount liters или preset
 	AmountRub     int64
 	Liters        float64
 	Preset        string
@@ -65,7 +65,7 @@ type Transaction struct {
 	ReceiptNumber string
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
-	// Топливный контур (после оплаты, до вызова MarkFiscalizing со стороны кассы).
+	// Поля топливного контура после оплаты и до MarkFiscalizing
 	FuelingStatus     FuelingStatus
 	FuelingError      string
 	FuelingSessionID  string
@@ -74,7 +74,7 @@ type Transaction struct {
 	DispensePartial   bool
 }
 
-// ValidateSelection проверяет топливо и что задан ровно один вариант заказа (сумма, литры или пресет).
+// Проверяет топливо и ровно один вариант заказа сумма литры или пресет
 func (t *Transaction) ValidateSelection() error {
 	if t.FuelType == "" {
 		return errors.New("fuel type is required")
@@ -121,7 +121,7 @@ func (t *Transaction) ValidateSelection() error {
 	return nil
 }
 
-// MarkPaymentPending — начало оплаты: только из selection, с проверкой заказа.
+// Начало оплаты только из selection с проверкой заказа
 func (t *Transaction) MarkPaymentPending() error {
 	if t.Status != TransactionStatusSelection {
 		return errors.New("payment can only be started from selection")
@@ -135,7 +135,7 @@ func (t *Transaction) MarkPaymentPending() error {
 	return nil
 }
 
-// MarkPaid — успешная оплата: только из payment_pending.
+// Успешная оплата только из payment_pending
 func (t *Transaction) MarkPaid() error {
 	if t.Status != TransactionStatusPaymentPending {
 		return errors.New("paid is only allowed from payment_pending")
@@ -146,7 +146,7 @@ func (t *Transaction) MarkPaid() error {
 	return nil
 }
 
-// MarkPaymentFailed — отказ или ошибка оплаты: только из payment_pending, текст в PaymentError.
+// Отказ или ошибка оплаты только из payment_pending текст в PaymentError
 func (t *Transaction) MarkPaymentFailed(msg string) error {
 	if t.Status != TransactionStatusPaymentPending {
 		return errors.New("payment failure is only allowed from payment_pending")
@@ -158,7 +158,7 @@ func (t *Transaction) MarkPaymentFailed(msg string) error {
 	return nil
 }
 
-// BeginFueling — переход paid -> fueling; sessionID выдаётся API отпуска (или заглушкой в HTTP-слое).
+// Переход из paid в fueling sessionID выдает API отпуска или заглушка
 func (t *Transaction) BeginFueling(sessionID string) error {
 	if t.Status != TransactionStatusPaid {
 		return errors.New("fueling can only be started from paid")
@@ -177,7 +177,7 @@ func (t *Transaction) BeginFueling(sessionID string) error {
 	return nil
 }
 
-// MarkFuelingDispensing — после подтверждения старта от API: starting -> dispensing.
+// После подтверждения старта от API переводит starting в dispensing
 func (t *Transaction) MarkFuelingDispensing() error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("dispensing is only allowed during fueling")
@@ -190,7 +190,7 @@ func (t *Transaction) MarkFuelingDispensing() error {
 	return nil
 }
 
-// UpdateDispensedLiters — текущий накопленный объём налива (не меняет TransactionStatus: ждём фискализацию отдельно).
+// Обновляет текущий накопленный объем налива и не меняет TransactionStatus
 func (t *Transaction) UpdateDispensedLiters(liters float64) error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("dispensed liters update is only allowed during fueling")
@@ -206,7 +206,7 @@ func (t *Transaction) UpdateDispensedLiters(liters float64) error {
 	return nil
 }
 
-// CompleteFuelingDispense — фиксирует факт отпуска; Status остаётся fueling до MarkFiscalizing (кассовый контур).
+// Фиксирует факт отпуска и оставляет Status равным fueling до MarkFiscalizing
 func (t *Transaction) CompleteFuelingDispense(actualLiters float64, partial bool) error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("complete dispense is only allowed during fueling")
@@ -225,7 +225,7 @@ func (t *Transaction) CompleteFuelingDispense(actualLiters float64, partial bool
 	return nil
 }
 
-// MarkFuelingFailed — ошибка налива/API: fueling -> failed.
+// Ошибка налива или API переводит fueling в failed
 func (t *Transaction) MarkFuelingFailed(msg string) error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("fueling failure is only allowed from fueling")
@@ -237,7 +237,7 @@ func (t *Transaction) MarkFuelingFailed(msg string) error {
 	return nil
 }
 
-// AbortFuelingFromPaid — оплачено, но отпуск нельзя начать (например API недоступен): paid -> failed.
+// Оплата прошла но отпуск нельзя начать например если API недоступен
 func (t *Transaction) AbortFuelingFromPaid(msg string) error {
 	if t.Status != TransactionStatusPaid {
 		return errors.New("abort fueling from paid is only allowed from paid")
@@ -249,7 +249,7 @@ func (t *Transaction) AbortFuelingFromPaid(msg string) error {
 	return nil
 }
 
-// MarkFiscalizing — старт фискализации после этапа fueling.
+// Старт фискализации после этапа fueling
 func (t *Transaction) MarkFiscalizing() error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("fiscalizing is only allowed from fueling")
@@ -260,7 +260,7 @@ func (t *Transaction) MarkFiscalizing() error {
 	return nil
 }
 
-// MarkFiscalized — успешный чек: номер в ReceiptNumber, переход в completed.
+// Успешный чек записывает номер в ReceiptNumber и переводит в completed
 func (t *Transaction) MarkFiscalized(receipt string) error {
 	if t.Status != TransactionStatusFiscalizing {
 		return errors.New("fiscalized is only allowed from fiscalizing")
@@ -275,7 +275,7 @@ func (t *Transaction) MarkFiscalized(receipt string) error {
 	return nil
 }
 
-// MarkFiscalFailed — ошибка ККТ/чека: текст в FiscalError, транзакция в failed.
+// Ошибка ККТ или чека сохраняет текст в FiscalError и переводит в failed
 func (t *Transaction) MarkFiscalFailed(msg string) error {
 	if t.Status != TransactionStatusFiscalizing {
 		return errors.New("fiscal failure is only allowed from fiscalizing")
