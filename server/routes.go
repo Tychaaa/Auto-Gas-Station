@@ -38,7 +38,7 @@ func registerFuelAndTerminalRoutes(r *gin.Engine) {
 	// Роуты процесса отпуска топлива
 	tx := v1.Group("/transactions/:id")
 	{
-		tx.POST("/fueling/start", notImplemented("fueling start"))
+		tx.POST("/fueling/start", fuelingStartHandler)
 		tx.POST("/fueling/dispensing", notImplemented("fueling dispensing"))
 		tx.POST("/fueling/progress", notImplemented("fueling progress"))
 		tx.POST("/fueling/complete", notImplemented("fueling complete"))
