@@ -17,6 +17,7 @@ import (
 type SessionStatus string
 
 const (
+	// Статусы жизненного цикла платежной сессии
 	SessionStatusCreated    SessionStatus = "created"
 	SessionStatusPending    SessionStatus = "pending"
 	SessionStatusProcessing SessionStatus = "processing"
@@ -29,6 +30,7 @@ const (
 type Scenario string
 
 const (
+	// Сценарии для эмуляции разных ответов терминала
 	ScenarioApproved Scenario = "approved"
 	ScenarioDeclined Scenario = "declined"
 	ScenarioTimeout  Scenario = "timeout"
@@ -36,6 +38,7 @@ const (
 )
 
 type Session struct {
+	// Данные, которые возвращаются по API
 	ID                    string        `json:"sessionId"`
 	ExternalTransactionID string        `json:"externalTransactionId,omitempty"`
 	AmountMinor           int64         `json:"amountMinor"`
@@ -49,12 +52,14 @@ type Session struct {
 }
 
 type storedSession struct {
+	// Внутреннее представление сессии в памяти
 	Session
 	autoOutcome  SessionStatus
 	autoComplete time.Time
 }
 
 type eventRecord struct {
+	// История действий для отладки
 	SessionID string    `json:"sessionId,omitempty"`
 	Type      string    `json:"type"`
 	Details   string    `json:"details,omitempty"`
@@ -62,12 +67,14 @@ type eventRecord struct {
 }
 
 type mockConfig struct {
+	// Настройки поведения мок сервиса
 	DefaultScenario  Scenario `json:"defaultScenario"`
 	AutoDelayMS      int      `json:"autoDelayMs"`
 	RandomDeclinePct int      `json:"randomDeclinePct"`
 }
 
 type store struct {
+	// Потокобезопасное in-memory хранилище
 	mu       sync.RWMutex
 	sessions map[string]*storedSession
 	events   []eventRecord
@@ -86,6 +93,7 @@ func newStore(cfg mockConfig) *store {
 }
 
 func (s *store) appendEvent(sessionID string, eventType string, details string) {
+	// Храним только последние события, чтобы не разрасталась память
 	s.events = append(s.events, eventRecord{
 		SessionID: sessionID,
 		Type:      eventType,
@@ -107,6 +115,7 @@ func (s *store) createSession(req createSessionRequest) Session {
 	defer s.mu.Unlock()
 
 	now := time.Now()
+	// Если сценарий не передали или он невалидный, берем дефолт из конфига
 	scenario := s.resolveScenario(req.Scenario)
 
 	session := &storedSession{
@@ -165,6 +174,7 @@ func (s *store) startSession(id string) (Session, error) {
 		delay = 0
 	}
 
+	// Планируем автоматический итог после задержки
 	outcome := chooseOutcomeForScenario(session.Scenario, s.config, s.rng)
 	session.autoOutcome = outcome
 	session.autoComplete = now.Add(delay)
@@ -214,7 +224,7 @@ func (s *store) setSessionScenario(id string, scenario Scenario) (Session, error
 	session.UpdatedAt = time.Now()
 	s.appendEvent(session.ID, "scenario_changed", "scenario="+string(scenario))
 
-	// Если сессия уже в обработке, сразу пересчитываем автозавершение.
+	// Если сессия уже в обработке, сразу пересчитываем автозавершение
 	if session.Status == SessionStatusProcessing {
 		outcome := chooseOutcomeForScenario(session.Scenario, s.config, s.rng)
 		session.autoOutcome = outcome
@@ -270,6 +280,7 @@ func (s *store) resolveScenario(raw string) Scenario {
 }
 
 func (s *store) applyAutoResultIfDue(session *storedSession) {
+	// Меняем статус только когда пришло время автозавершения
 	if session.Status != SessionStatusProcessing {
 		return
 	}
@@ -326,6 +337,7 @@ func (e *apiError) Error() string {
 }
 
 func loadMockEnv() {
+	// Проверяем несколько путей, чтобы запускать сервис из разных директорий
 	candidates := []string{
 		"server/mocks/vendotek/.env",
 		"mocks/vendotek/.env",
@@ -358,6 +370,7 @@ func main() {
 	}
 	mockStore := newStore(cfg)
 
+	// Основные API роуты мок сервиса
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
@@ -376,6 +389,7 @@ func main() {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
+		// Валидация базовых полей при создании сессии
 		if req.AmountMinor <= 0 {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "amountMinor must be > 0"})
 			return
@@ -409,6 +423,7 @@ func main() {
 	})
 
 	r.POST("/sessions/:id/approve", func(c *gin.Context) {
+		// Принудительно завершаем сессию как успешную
 		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusApproved, "")
 		if err != nil {
 			renderError(c, err)
@@ -418,6 +433,7 @@ func main() {
 	})
 
 	r.POST("/sessions/:id/decline", func(c *gin.Context) {
+		// Принудительно завершаем сессию как отклоненную
 		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusDeclined, "declined manually")
 		if err != nil {
 			renderError(c, err)
@@ -427,6 +443,7 @@ func main() {
 	})
 
 	r.POST("/sessions/:id/cancel", func(c *gin.Context) {
+		// Принудительно отменяем сессию
 		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusCancelled, "cancelled manually")
 		if err != nil {
 			renderError(c, err)
@@ -458,6 +475,7 @@ func main() {
 }
 
 func renderError(c *gin.Context, err error) {
+	// Преобразуем внутренние ошибки в ответ API
 	apiErr, ok := err.(*apiError)
 	if !ok {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
@@ -467,6 +485,7 @@ func renderError(c *gin.Context, err error) {
 }
 
 func chooseOutcomeForScenario(scenario Scenario, cfg mockConfig, rng *rand.Rand) SessionStatus {
+	// Выбираем итог на основе сценария для тестовых прогонов
 	switch scenario {
 	case ScenarioApproved:
 		return SessionStatusApproved
@@ -485,6 +504,7 @@ func chooseOutcomeForScenario(scenario Scenario, cfg mockConfig, rng *rand.Rand)
 }
 
 func parseScenario(raw string) (Scenario, bool) {
+	// Нормализуем ввод, чтобы принимать значения в разном регистре
 	normalized := Scenario(strings.ToLower(strings.TrimSpace(raw)))
 	if isKnownScenario(normalized) {
 		return normalized, true
@@ -509,6 +529,7 @@ func mustScenarioOrDefault(raw string, fallback Scenario) Scenario {
 }
 
 func normalizeCurrency(raw string) string {
+	// По умолчанию используем рубли
 	value := strings.ToUpper(strings.TrimSpace(raw))
 	if value == "" {
 		return "RUB"
@@ -526,6 +547,7 @@ func isFinalStatus(status SessionStatus) bool {
 }
 
 func envIntOrDefault(name string, fallback int) int {
+	// Безопасно читаем число из env и даем fallback при ошибке
 	raw := strings.TrimSpace(os.Getenv(name))
 	if raw == "" {
 		return fallback
