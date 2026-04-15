@@ -10,6 +10,7 @@ import (
 
 var transactionStore = NewTransactionStore()
 var ErrSelectionStateConflict = errors.New("transaction is not in selection status")
+var ErrPaymentStartStateConflict = errors.New("payment can only be started from selection")
 
 // Данные запроса на создание транзакции
 type createTransactionRequest struct {
@@ -27,6 +28,85 @@ type updateSelectionRequest struct {
 	AmountRub int64   `json:"amountRub"`
 	Liters    float64 `json:"liters"`
 	Preset    string  `json:"preset"`
+}
+
+func paymentStartHandler(c *gin.Context) {
+	// Берем id транзакции из адреса запроса
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "transaction id is required",
+		})
+		return
+	}
+
+	// Проверяем что платежный адаптер подключен
+	if paymentAdapter == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "payment adapter is not configured",
+		})
+		return
+	}
+
+	// Ищем транзакцию и проверяем сумму для оплаты
+	txSnapshot, ok := transactionStore.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "transaction not found",
+		})
+		return
+	}
+	if txSnapshot.AmountRub <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "amountRub must be > 0 to start payment",
+		})
+		return
+	}
+
+	// Запускаем платеж во внешнем адаптере
+	startResult, err := paymentAdapter.StartPayment(c.Request.Context(), PaymentStartInput{
+		ExternalTransactionID: id,
+		AmountMinor:           txSnapshot.AmountRub * 100,
+		Currency:              "RUB",
+	})
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	// Обновляем локальное состояние транзакции после старта платежа
+	updated, err := transactionStore.Update(id, func(tx *Transaction) error {
+		if err := tx.MarkPaymentPending(); err != nil {
+			return err
+		}
+		tx.PaymentProvider = "vendotek_mock"
+		tx.PaymentSessionID = startResult.SessionID
+		tx.PaymentError = ""
+		return nil
+	})
+	if err != nil {
+		// Возвращаем понятную ошибку в зависимости от причины
+		switch {
+		case errors.Is(err, ErrTransactionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "transaction not found",
+			})
+		case err.Error() == ErrPaymentStartStateConflict.Error():
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+		return
+	}
+
+	// Возвращаем обновленную транзакцию клиенту
+	c.JSON(http.StatusOK, updated)
 }
 
 func createTransactionHandler(c *gin.Context) {

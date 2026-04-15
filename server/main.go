@@ -20,6 +20,7 @@ func main() {
 		mode = gin.DebugMode
 	}
 	gin.SetMode(mode)
+	initPaymentAdapterFromEnv()
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
