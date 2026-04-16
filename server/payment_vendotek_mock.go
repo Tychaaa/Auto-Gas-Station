@@ -96,53 +96,6 @@ func (a *VendotekMockAdapter) GetPaymentStatus(ctx context.Context, input Paymen
 	}, nil
 }
 
-func (a *VendotekMockAdapter) ApprovePayment(ctx context.Context, input PaymentApproveInput) (PaymentApproveResult, error) {
-	// Проверяем что адаптер и базовый адрес доступны
-	if a == nil || a.baseURL == "" {
-		return PaymentApproveResult{}, ErrPaymentAdapterUnavailable
-	}
-	// Проверяем корректность идентификатора сессии
-	if strings.TrimSpace(input.SessionID) == "" {
-		return PaymentApproveResult{}, errors.New("payment session id is required")
-	}
-
-	// Подтверждаем платежную сессию
-	approveResp := vendotekSessionResponse{}
-	approvePath := fmt.Sprintf("/sessions/%s/approve", input.SessionID)
-	if err := a.postJSON(ctx, approvePath, struct{}{}, &approveResp); err != nil {
-		return PaymentApproveResult{}, err
-	}
-
-	return PaymentApproveResult{
-		SessionID: input.SessionID,
-		Status:    approveResp.Status,
-	}, nil
-}
-
-func (a *VendotekMockAdapter) DeclinePayment(ctx context.Context, input PaymentDeclineInput) (PaymentDeclineResult, error) {
-	// Проверяем что адаптер и базовый адрес доступны
-	if a == nil || a.baseURL == "" {
-		return PaymentDeclineResult{}, ErrPaymentAdapterUnavailable
-	}
-	// Проверяем корректность идентификатора сессии
-	if strings.TrimSpace(input.SessionID) == "" {
-		return PaymentDeclineResult{}, errors.New("payment session id is required")
-	}
-
-	// Отклоняем платежную сессию
-	declineResp := vendotekSessionResponse{}
-	declinePath := fmt.Sprintf("/sessions/%s/decline", input.SessionID)
-	if err := a.postJSON(ctx, declinePath, struct{}{}, &declineResp); err != nil {
-		return PaymentDeclineResult{}, err
-	}
-
-	return PaymentDeclineResult{
-		SessionID: input.SessionID,
-		Status:    declineResp.Status,
-		Error:     declineResp.Error,
-	}, nil
-}
-
 func (a *VendotekMockAdapter) postJSON(ctx context.Context, path string, reqBody any, respBody any) error {
 	// Сериализуем тело запроса в JSON
 	rawBody, err := json.Marshal(reqBody)
