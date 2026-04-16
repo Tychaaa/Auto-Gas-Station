@@ -1,3 +1,4 @@
+// Возможные этапы жизненного цикла транзакции
 export const transactionStatuses = [
   'selection',
   'payment_pending',
@@ -10,14 +11,17 @@ export const transactionStatuses = [
 
 export type TransactionStatus = (typeof transactionStatuses)[number]
 
+// Состояния оплаты
 export const paymentStatuses = ['none', 'pending', 'approved', 'declined'] as const
 
 export type PaymentStatus = (typeof paymentStatuses)[number]
 
+// Состояния фискализации
 export const fiscalStatuses = ['none', 'pending', 'done', 'failed'] as const
 
 export type FiscalStatus = (typeof fiscalStatuses)[number]
 
+// Состояния процесса отпуска топлива
 export const fuelingStatuses = [
   'none',
   'starting',
@@ -28,13 +32,15 @@ export const fuelingStatuses = [
 
 export type FuelingStatus = (typeof fuelingStatuses)[number]
 
+// Режимы оформления заправки
 export const orderModes = ['amount', 'liters', 'preset'] as const
 
 export type OrderMode = (typeof orderModes)[number]
 
-// Fuel type values are backend-configurable, so keep it open as string.
+// Тип топлива приходит с сервера, поэтому оставляем строку
 export type FuelType = string
 
+// Данные, которые пользователь выбирает перед оплатой
 export interface SelectionPayload {
   fuelType: FuelType
   orderMode: OrderMode
@@ -43,6 +49,7 @@ export interface SelectionPayload {
   preset: string
 }
 
+// Полное состояние транзакции на клиенте
 export interface Transaction {
   id: string
   fuelType: FuelType
