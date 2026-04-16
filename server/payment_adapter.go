@@ -14,6 +14,7 @@ var paymentAdapter PaymentAdapter
 // Единый интерфейс для разных платежных интеграций
 type PaymentAdapter interface {
 	StartPayment(ctx context.Context, input PaymentStartInput) (PaymentStartResult, error)
+	ApprovePayment(ctx context.Context, input PaymentApproveInput) (PaymentApproveResult, error)
 }
 
 // Данные для старта платежа
@@ -25,6 +26,17 @@ type PaymentStartInput struct {
 
 // Результат запуска платежа
 type PaymentStartResult struct {
+	SessionID string
+	Status    string
+}
+
+// Данные для подтверждения платежа
+type PaymentApproveInput struct {
+	SessionID string
+}
+
+// Результат подтверждения платежа
+type PaymentApproveResult struct {
 	SessionID string
 	Status    string
 }
