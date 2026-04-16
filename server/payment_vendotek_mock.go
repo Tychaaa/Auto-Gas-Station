@@ -72,6 +72,30 @@ func (a *VendotekMockAdapter) StartPayment(ctx context.Context, input PaymentSta
 	}, nil
 }
 
+func (a *VendotekMockAdapter) GetPaymentStatus(ctx context.Context, input PaymentStatusInput) (PaymentStatusResult, error) {
+	// Проверяем что адаптер и базовый адрес доступны
+	if a == nil || a.baseURL == "" {
+		return PaymentStatusResult{}, ErrPaymentAdapterUnavailable
+	}
+	// Проверяем корректность идентификатора сессии
+	if strings.TrimSpace(input.SessionID) == "" {
+		return PaymentStatusResult{}, errors.New("payment session id is required")
+	}
+
+	// Читаем текущее состояние платежной сессии
+	statusResp := vendotekSessionResponse{}
+	statusPath := fmt.Sprintf("/sessions/%s", input.SessionID)
+	if err := a.getJSON(ctx, statusPath, &statusResp); err != nil {
+		return PaymentStatusResult{}, err
+	}
+
+	return PaymentStatusResult{
+		SessionID: input.SessionID,
+		Status:    statusResp.Status,
+		Error:     statusResp.Error,
+	}, nil
+}
+
 func (a *VendotekMockAdapter) postJSON(ctx context.Context, path string, reqBody any, respBody any) error {
 	// Сериализуем тело запроса в JSON
 	rawBody, err := json.Marshal(reqBody)
@@ -114,6 +138,40 @@ func (a *VendotekMockAdapter) postJSON(ctx context.Context, path string, reqBody
 	return nil
 }
 
+func (a *VendotekMockAdapter) getJSON(ctx context.Context, path string, respBody any) error {
+	// Формируем GET запрос к нужному пути
+	url := a.baseURL + path
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return fmt.Errorf("build vendotek request: %w", err)
+	}
+
+	// Отправляем запрос и закрываем тело ответа
+	resp, err := a.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("call vendotek mock: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Для неуспешного кода пробуем достать текст ошибки из API
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		var apiErr vendotekErrorResponse
+		if decodeErr := json.NewDecoder(resp.Body).Decode(&apiErr); decodeErr == nil && apiErr.Error != "" {
+			return fmt.Errorf("vendotek mock %s: %s", resp.Status, apiErr.Error)
+		}
+		return fmt.Errorf("vendotek mock returned %s", resp.Status)
+	}
+
+	if respBody == nil {
+		return nil
+	}
+	// Читаем JSON ответ в целевую структуру
+	if err := json.NewDecoder(resp.Body).Decode(respBody); err != nil {
+		return fmt.Errorf("decode vendotek response: %w", err)
+	}
+	return nil
+}
+
 type vendotekCreateSessionRequest struct {
 	ExternalTransactionID string `json:"externalTransactionId"`
 	AmountMinor           int64  `json:"amountMinor"`
@@ -123,6 +181,7 @@ type vendotekCreateSessionRequest struct {
 type vendotekSessionResponse struct {
 	SessionID string `json:"sessionId"`
 	Status    string `json:"status"`
+	Error     string `json:"error,omitempty"`
 }
 
 type vendotekErrorResponse struct {

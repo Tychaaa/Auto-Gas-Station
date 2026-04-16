@@ -14,6 +14,7 @@ var paymentAdapter PaymentAdapter
 // Единый интерфейс для разных платежных интеграций
 type PaymentAdapter interface {
 	StartPayment(ctx context.Context, input PaymentStartInput) (PaymentStartResult, error)
+	GetPaymentStatus(ctx context.Context, input PaymentStatusInput) (PaymentStatusResult, error)
 }
 
 // Данные для старта платежа
@@ -27,6 +28,18 @@ type PaymentStartInput struct {
 type PaymentStartResult struct {
 	SessionID string
 	Status    string
+}
+
+// Данные для запроса текущего статуса платежа
+type PaymentStatusInput struct {
+	SessionID string
+}
+
+// Текущее состояние платежной сессии
+type PaymentStatusResult struct {
+	SessionID string
+	Status    string
+	Error     string
 }
 
 func initPaymentAdapterFromEnv() {
