@@ -24,7 +24,7 @@ func registerPaymentRoutes(r *gin.Engine) {
 		tx.PUT("/selection", updateSelectionHandler)
 		tx.POST("/payment/start", paymentStartHandler)
 		tx.POST("/payment/approve", paymentApproveHandler)
-		tx.POST("/payment/decline", notImplemented("payment decline"))
+		tx.POST("/payment/decline", paymentDeclineHandler)
 		tx.POST("/fiscalization/start", notImplemented("fiscalization start"))
 		tx.POST("/fiscalization/complete", notImplemented("fiscalization complete"))
 		tx.POST("/fiscalization/fail", notImplemented("fiscalization fail"))

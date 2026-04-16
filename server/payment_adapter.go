@@ -15,6 +15,7 @@ var paymentAdapter PaymentAdapter
 type PaymentAdapter interface {
 	StartPayment(ctx context.Context, input PaymentStartInput) (PaymentStartResult, error)
 	ApprovePayment(ctx context.Context, input PaymentApproveInput) (PaymentApproveResult, error)
+	DeclinePayment(ctx context.Context, input PaymentDeclineInput) (PaymentDeclineResult, error)
 }
 
 // Данные для старта платежа
@@ -39,6 +40,18 @@ type PaymentApproveInput struct {
 type PaymentApproveResult struct {
 	SessionID string
 	Status    string
+}
+
+// Данные для отклонения платежа
+type PaymentDeclineInput struct {
+	SessionID string
+}
+
+// Результат отклонения платежа
+type PaymentDeclineResult struct {
+	SessionID string
+	Status    string
+	Error     string
 }
 
 func initPaymentAdapterFromEnv() {
