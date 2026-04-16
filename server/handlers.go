@@ -14,6 +14,7 @@ var ErrSelectionStateConflict = errors.New("transaction is not in selection stat
 var ErrPaymentStartStateConflict = errors.New("payment can only be started from selection")
 var ErrPaymentApproveStateConflict = errors.New("paid is only allowed from payment_pending")
 var ErrPaymentDeclineStateConflict = errors.New("payment failure is only allowed from payment_pending")
+var ErrPaymentStatusStateConflict = errors.New("payment status sync is only allowed from payment_pending")
 
 // Данные запроса на создание транзакции
 type createTransactionRequest struct {
@@ -79,7 +80,7 @@ func paymentStartHandler(c *gin.Context) {
 		return
 	}
 
-	// Обновляем локальное состояние транзакции после старта платежа
+	// Сначала сохраняем факт старта оплаты и session id
 	updated, err := transactionStore.Update(id, func(tx *Transaction) error {
 		if err := tx.MarkPaymentPending(); err != nil {
 			return err
@@ -108,8 +109,152 @@ func paymentStartHandler(c *gin.Context) {
 		return
 	}
 
-	// Возвращаем обновленную транзакцию клиенту
+	// Делаем первый sync статуса сессии сразу после старта
+	sessionStatus, err := paymentAdapter.GetPaymentStatus(c.Request.Context(), PaymentStatusInput{
+		SessionID: startResult.SessionID,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	updated, err = transactionStore.Update(id, func(tx *Transaction) error {
+		return applyVendotekStatusToTransaction(tx, sessionStatus)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrTransactionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "transaction not found",
+			})
+		case err.Error() == ErrPaymentStatusStateConflict.Error():
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+		return
+	}
+
+	// Возвращаем транзакцию после первого status-sync
 	c.JSON(http.StatusOK, updated)
+}
+
+func paymentStatusHandler(c *gin.Context) {
+	// Берем id транзакции из адреса запроса
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "transaction id is required",
+		})
+		return
+	}
+
+	// Проверяем что платежный адаптер подключен
+	if paymentAdapter == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "payment adapter is not configured",
+		})
+		return
+	}
+
+	// Ищем транзакцию и данные платежной сессии
+	txSnapshot, ok := transactionStore.Get(id)
+	if !ok {
+		c.JSON(http.StatusNotFound, gin.H{
+			"error": "transaction not found",
+		})
+		return
+	}
+	if txSnapshot.PaymentSessionID == "" {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "payment session id is required",
+		})
+		return
+	}
+	// После финализации платежа повторно статус не применяем
+	if txSnapshot.Status != TransactionStatusPaymentPending {
+		c.JSON(http.StatusOK, txSnapshot)
+		return
+	}
+
+	// Получаем актуальный статус сессии из Vendotek
+	sessionStatus, err := paymentAdapter.GetPaymentStatus(c.Request.Context(), PaymentStatusInput{
+		SessionID: txSnapshot.PaymentSessionID,
+	})
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	updated, err := transactionStore.Update(id, func(tx *Transaction) error {
+		return applyVendotekStatusToTransaction(tx, sessionStatus)
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrTransactionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "transaction not found",
+			})
+		case err.Error() == ErrPaymentStatusStateConflict.Error():
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+		return
+	}
+
+	c.JSON(http.StatusOK, updated)
+}
+
+func applyVendotekStatusToTransaction(tx *Transaction, status PaymentStatusResult) error {
+	if tx.Status != TransactionStatusPaymentPending {
+		return ErrPaymentStatusStateConflict
+	}
+
+	switch strings.ToLower(strings.TrimSpace(status.Status)) {
+	case "approved":
+		if err := tx.MarkPaid(); err != nil {
+			return err
+		}
+		tx.PaymentError = ""
+	case "declined", "timeout", "cancelled":
+		msg := strings.TrimSpace(status.Error)
+		if msg == "" {
+			msg = defaultPaymentFailureMessage(status.Status)
+		}
+		if err := tx.MarkPaymentFailed(msg); err != nil {
+			return err
+		}
+	case "created", "pending", "processing":
+		// Оставляем payment_pending без изменения
+	default:
+		// Неизвестный статус не финализирует оплату
+	}
+
+	return nil
+}
+
+func defaultPaymentFailureMessage(status string) string {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "timeout":
+		return "payment timeout"
+	case "cancelled":
+		return "payment cancelled"
+	default:
+		return "payment declined"
+	}
 }
 
 func paymentApproveHandler(c *gin.Context) {
