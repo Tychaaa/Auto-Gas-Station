@@ -42,36 +42,38 @@ const (
 type FuelingStatus string
 
 const (
-	FuelingStatusNone                    FuelingStatus = "none"
-	FuelingStatusStarting                FuelingStatus = "starting"
-	FuelingStatusDispensing              FuelingStatus = "dispensing"
-	FuelingStatusCompletedWaitingFiscal  FuelingStatus = "completed_waiting_fiscal"
-	FuelingStatusFailed                  FuelingStatus = "failed"
+	FuelingStatusNone                   FuelingStatus = "none"
+	FuelingStatusStarting               FuelingStatus = "starting"
+	FuelingStatusDispensing             FuelingStatus = "dispensing"
+	FuelingStatusCompletedWaitingFiscal FuelingStatus = "completed_waiting_fiscal"
+	FuelingStatusFailed                 FuelingStatus = "failed"
 )
 
 // Данные заказа и текущие статусы проведения
 type Transaction struct {
-	ID            string
-	FuelType      string
-	OrderMode     string // Способ заказа amount liters или preset
-	AmountRub     int64
-	Liters        float64
-	Preset        string
-	Status        TransactionStatus
-	PaymentStatus PaymentStatus
-	FiscalStatus  FiscalStatus
-	PaymentError  string
-	FiscalError   string
-	ReceiptNumber string
-	CreatedAt     time.Time
-	UpdatedAt     time.Time
+	ID               string
+	FuelType         string
+	OrderMode        string // Способ заказа amount liters или preset
+	AmountRub        int64
+	Liters           float64
+	Preset           string
+	Status           TransactionStatus
+	PaymentStatus    PaymentStatus
+	FiscalStatus     FiscalStatus
+	PaymentProvider  string
+	PaymentSessionID string
+	PaymentError     string
+	FiscalError      string
+	ReceiptNumber    string
+	CreatedAt        time.Time
+	UpdatedAt        time.Time
 	// Поля топливного контура после оплаты и до MarkFiscalizing
-	FuelingStatus     FuelingStatus
-	FuelingError      string
-	FuelingSessionID  string
-	DispensedLiters   float64
-	DispenseComplete  bool
-	DispensePartial   bool
+	FuelingStatus    FuelingStatus
+	FuelingError     string
+	FuelingSessionID string
+	DispensedLiters  float64
+	DispenseComplete bool
+	DispensePartial  bool
 }
 
 // Проверяет топливо и ровно один вариант заказа сумма литры или пресет
