@@ -11,12 +11,14 @@ import {
 } from '@/api'
 import type { SelectionPayload, Transaction } from '@/types'
 
+// Ошибка для отображения в UI
 export interface TransactionFlowError {
   message: string
   status?: number
   route?: string
 }
 
+// Начальные значения выбора перед созданием транзакции
 const DEFAULT_SELECTION_DRAFT: SelectionPayload = {
   fuelType: '',
   orderMode: 'amount',
@@ -26,23 +28,28 @@ const DEFAULT_SELECTION_DRAFT: SelectionPayload = {
 }
 
 export const useTransactionFlowStore = defineStore('transactionFlow', () => {
+  // Основное состояние сценария транзакции
   const transaction = ref<Transaction | null>(null)
   const transactionId = ref<string | null>(null)
   const selectionDraft = ref<SelectionPayload>({ ...DEFAULT_SELECTION_DRAFT })
 
+  // Флаги сетевых действий и поллинга
   const isSubmittingSelection = ref(false)
   const isStartingPayment = ref(false)
   const isPollingPayment = ref(false)
   const pollingTimerId = ref<number | null>(null)
   const isPollingRequestInFlight = ref(false)
 
+  // Последняя ошибка для интерфейса
   const lastError = ref<TransactionFlowError | null>(null)
 
+  // Короткие вычисляемые признаки состояния
   const hasActiveTransaction = computed(() => transactionId.value !== null)
   const isPaymentPending = computed(() => transaction.value?.status === 'payment_pending')
   const isPaid = computed(() => transaction.value?.status === 'paid')
   const isFailed = computed(() => transaction.value?.status === 'failed')
 
+  // Проверяет корректность выбранных параметров
   const isSelectionDraftValid = computed(() => {
     const draft = selectionDraft.value
     const hasFuelType = draft.fuelType.trim().length > 0
@@ -55,6 +62,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     return hasFuelType && modeMatchesValue
   })
 
+  // Можно ли запускать оплату прямо сейчас
   const canStartPayment = computed(() => {
     const hasSelectionState = transaction.value?.status === 'selection'
     return (
@@ -66,10 +74,12 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     )
   })
 
+  // Сбрасывает текущую ошибку
   function clearError(): void {
     lastError.value = null
   }
 
+  // Приводит ошибку к единому формату store
   function setStoreError(error: unknown): TransactionFlowError {
     const normalized =
       error instanceof ApiClientError
@@ -86,6 +96,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     return normalized
   }
 
+  // Сохраняет транзакцию и синхронизирует черновик выбора
   function applyTransaction(nextTransaction: Transaction): void {
     transaction.value = nextTransaction
     transactionId.value = nextTransaction.id
@@ -98,6 +109,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Обновляет часть черновика выбора
   function setSelectionDraft(patch: Partial<SelectionPayload>): void {
     selectionDraft.value = {
       ...selectionDraft.value,
@@ -106,6 +118,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     clearError()
   }
 
+  // Создает транзакцию или обновляет существующую
   async function submitSelection(): Promise<Transaction | null> {
     isSubmittingSelection.value = true
     clearError()
@@ -126,6 +139,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Запрашивает актуальное состояние транзакции
   async function refreshTransaction(): Promise<Transaction | null> {
     const currentId = transactionId.value
     if (!currentId) {
@@ -144,6 +158,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Один запрос статуса оплаты с проверками
   async function pollPaymentStatusOnce(): Promise<Transaction | null> {
     if (isPollingRequestInFlight.value) {
       return transaction.value
@@ -178,6 +193,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Запускает периодический опрос статуса оплаты
   function startPaymentPolling(intervalMs = 2000): void {
     if (isPollingPayment.value || pollingTimerId.value !== null) {
       return
@@ -189,6 +205,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }, intervalMs)
   }
 
+  // Останавливает опрос и очищает связанные флаги
   function stopPaymentPolling(): void {
     if (pollingTimerId.value !== null) {
       window.clearInterval(pollingTimerId.value)
@@ -198,6 +215,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     isPollingRequestInFlight.value = false
   }
 
+  // Запускает оплату и включает поллинг при необходимости
   async function startPaymentFlow(): Promise<Transaction | null> {
     const currentId = transactionId.value
     if (!currentId) {
@@ -229,6 +247,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Полностью сбрасывает сценарий транзакции
   function resetFlow(): void {
     stopPaymentPolling()
     transaction.value = null
