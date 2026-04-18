@@ -39,8 +39,8 @@ func registerFuelAndTerminalRoutes(r *gin.Engine) {
 	{
 		tx.POST("/fueling/start", fuelingStartHandler)
 		tx.POST("/fueling/dispensing", notImplemented("fueling dispensing"))
-		tx.POST("/fueling/progress", notImplemented("fueling progress"))
-		tx.POST("/fueling/complete", notImplemented("fueling complete"))
+		tx.POST("/fueling/progress", fuelingProgressHandler)
+		tx.POST("/fueling/complete", fuelingProgressHandler)
 		tx.POST("/fueling/abort-paid", notImplemented("fueling abort-paid"))
 		tx.POST("/fueling/fail", notImplemented("fueling fail"))
 	}
