@@ -8,7 +8,7 @@ defineProps<{
 </script>
 
 <template>
-  <nav aria-label="Прогресс заправки" class="bg-fuel-olive border-b border-fuel-forest/45 shrink-0">
+  <nav aria-label="Прогресс заправки" class="bg-fuel-cream border-b border-fuel-olive/25 shrink-0">
     <ol class="flex items-center justify-center px-10 py-4">
       <li
         v-for="(step, index) in steps"
@@ -22,7 +22,7 @@ defineProps<{
             :class="
               index + 1 <= current
                 ? 'bg-fuel-lime text-white'
-                : 'bg-fuel-olive border-2 border-fuel-cream/65 text-fuel-cream'
+                : 'bg-white border-2 border-fuel-olive/30 text-fuel-olive/80'
             "
             :aria-current="index + 1 === current ? 'step' : undefined"
           >
@@ -33,10 +33,10 @@ defineProps<{
             class="text-sm font-karla transition-colors duration-300"
             :class="
               index + 1 === current
-                ? 'text-fuel-cream font-semibold'
+                ? 'text-fuel-forest font-semibold'
                 : index + 1 < current
-                  ? 'text-fuel-cream/90 font-medium'
-                  : 'text-fuel-cream/70'
+                  ? 'text-fuel-forest/80 font-medium'
+                  : 'text-fuel-olive/80'
             "
           >
             {{ step }}
@@ -47,7 +47,7 @@ defineProps<{
         <div
           v-if="index < steps.length - 1"
           class="w-14 h-px mx-4 transition-colors duration-300"
-          :class="index + 1 < current ? 'bg-fuel-lime' : 'bg-fuel-cream/35'"
+          :class="index + 1 < current ? 'bg-fuel-lime/60' : 'bg-fuel-olive/25'"
           aria-hidden="true"
         />
       </li>

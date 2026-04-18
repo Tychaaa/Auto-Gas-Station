@@ -37,7 +37,7 @@ function handleNext(): void {
 <template>
   <div class="min-h-screen flex flex-col bg-fuel-cream">
     <!-- Шапка экрана -->
-    <header class="bg-fuel-forest border-b border-fuel-olive/50 py-5 px-10 text-center shrink-0 shadow-sm">
+    <header class="bg-fuel-forest border-b border-fuel-olive/35 py-5 px-10 text-center shrink-0 shadow-sm">
       <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
         Автоматизированная АЗС
       </p>
