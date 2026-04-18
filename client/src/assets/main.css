@@ -8,6 +8,10 @@
 @theme {
   --font-rubik: 'Rubik', sans-serif;
   --font-karla: 'Karla', sans-serif;
+  --color-fuel-cream: #fefae0;
+  --color-fuel-forest: #283618;
+  --color-fuel-olive: #606c38;
+  --color-fuel-lime: #a3bb25;
 }
 
 /* Базовые стили приложения */

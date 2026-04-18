@@ -35,13 +35,13 @@ function handleNext(): void {
 </script>
 
 <template>
-  <div class="min-h-screen flex flex-col bg-zinc-100">
+  <div class="min-h-screen flex flex-col bg-fuel-cream">
     <!-- Шапка экрана -->
-    <header class="bg-white border-b border-zinc-200 py-5 px-10 text-center shrink-0">
-      <p class="font-karla text-xs text-zinc-400 tracking-widest uppercase mb-1">
+    <header class="bg-fuel-forest border-b border-fuel-olive/50 py-5 px-10 text-center shrink-0 shadow-sm">
+      <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
         Автоматизированная АЗС
       </p>
-      <h1 class="font-rubik font-bold text-3xl text-zinc-900 leading-tight">
+      <h1 class="font-rubik font-bold text-3xl text-white leading-tight">
         Выберите вид топлива
       </h1>
     </header>
@@ -68,7 +68,10 @@ function handleNext(): void {
       </div>
 
       <!-- Подсказка для пользователя -->
-      <p class="font-karla text-sm text-zinc-400 transition-all duration-300">
+      <p
+        class="font-karla text-sm transition-all duration-300"
+        :class="selectedFuel ? 'text-fuel-forest' : 'text-fuel-olive'"
+      >
         {{
           selectedFuel
             ? `Выбрано: ${selectedFuel} — нажмите «Далее» для продолжения`
@@ -83,11 +86,11 @@ function handleNext(): void {
         :aria-disabled="!selectedFuel"
         class="font-rubik font-semibold text-lg px-14 py-4 rounded-xl
                transition-all duration-200
-               focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+               focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
         :class="
           selectedFuel
-            ? 'bg-zinc-900 text-white hover:bg-zinc-700 active:scale-95 shadow-sm cursor-pointer'
-            : 'bg-zinc-200 text-zinc-400 cursor-not-allowed'
+            ? 'bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95 shadow-md shadow-fuel-lime/25 cursor-pointer'
+            : 'bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed'
         "
         @click="handleNext"
       >

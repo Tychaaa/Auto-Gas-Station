@@ -21,23 +21,23 @@ defineEmits<{
     :aria-label="`${name} — ${grade}`"
     @click="$emit('select')"
     class="flex flex-col items-center justify-center gap-5 w-full py-10 px-6
-           rounded-2xl bg-white cursor-pointer select-none
+           rounded-2xl cursor-pointer select-none
            border-2 transition-all duration-200 ease-out
-           focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-zinc-900 focus-visible:ring-offset-2"
+           focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
     :class="[
       selected
-        ? 'border-zinc-900 shadow-lg -translate-y-0.5'
-        : 'border-zinc-200 hover:border-zinc-400 hover:shadow-sm hover:-translate-y-0.5',
+        ? 'bg-fuel-olive border-fuel-lime shadow-lg shadow-fuel-lime/20 -translate-y-0.5'
+        : 'bg-white border-fuel-lime/50 hover:border-fuel-lime hover:shadow-sm hover:-translate-y-0.5',
     ]"
   >
     <!-- Иконка топлива -->
     <div
       class="flex items-center justify-center w-16 h-16 rounded-full transition-colors duration-200"
-      :class="selected ? 'bg-zinc-900' : 'bg-zinc-100'"
+      :class="selected ? 'bg-fuel-lime' : 'bg-fuel-cream'"
     >
       <svg
         class="w-7 h-7 rotate-180 transition-colors duration-200"
-        :class="selected ? 'text-white' : 'text-zinc-400'"
+        :class="selected ? 'text-white' : 'text-fuel-lime'"
         viewBox="0 0 24 24"
         fill="currentColor"
         aria-hidden="true"
@@ -49,14 +49,17 @@ defineEmits<{
     </div>
 
     <!-- Название топлива -->
-    <span class="font-rubik font-bold text-5xl leading-none text-zinc-900 tracking-tight">
+    <span
+      class="font-rubik font-bold text-5xl leading-none tracking-tight transition-colors duration-200"
+      :class="selected ? 'text-white' : 'text-fuel-forest'"
+    >
       {{ name }}
     </span>
 
     <!-- Метка типа топлива -->
     <span
       class="font-karla text-xs font-semibold tracking-widest uppercase px-4 py-1.5 rounded-full transition-all duration-200"
-      :class="selected ? 'bg-zinc-900 text-white' : 'bg-zinc-100 text-zinc-500'"
+      :class="selected ? 'bg-fuel-lime text-white' : 'bg-fuel-cream text-fuel-lime'"
     >
       {{ grade }}
     </span>
@@ -64,7 +67,7 @@ defineEmits<{
     <!-- Индикатор выбора -->
     <div
       class="flex items-center justify-center w-6 h-6 rounded-full border-2 transition-all duration-200"
-      :class="selected ? 'bg-zinc-900 border-zinc-900' : 'border-zinc-300'"
+      :class="selected ? 'bg-fuel-lime border-fuel-lime' : 'border-fuel-lime'"
     >
       <svg
         v-if="selected"
