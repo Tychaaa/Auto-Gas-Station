@@ -1,36 +1,42 @@
-@import './base.css';
+/* Подключение шрифтов */
+@import url('https://fonts.googleapis.com/css2?family=Rubik:wght@400;500;600;700;800&family=Karla:wght@400;500;600;700&display=swap');
+
+/* Подключение Tailwind */
 @import 'tailwindcss';
 
-#app {
-  max-width: 1280px;
-  margin: 0 auto;
-  padding: 2rem;
-  font-weight: normal;
+/* Токены темы */
+@theme {
+  --font-rubik: 'Rubik', sans-serif;
+  --font-karla: 'Karla', sans-serif;
 }
 
-a,
-.green {
-  text-decoration: none;
-  color: hsla(160, 100%, 37%, 1);
-  transition: 0.4s;
-  padding: 3px;
-}
-
-@media (hover: hover) {
-  a:hover {
-    background-color: hsla(160, 100%, 37%, 0.2);
+/* Базовые стили приложения */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+    margin: 0;
   }
-}
 
-@media (min-width: 1024px) {
+  html,
   body {
-    display: flex;
-    place-items: center;
+    height: 100%;
   }
 
+  body {
+    font-family: var(--font-karla);
+    background-color: #f4f4f5;
+    color: #18181b;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    line-height: 1.5;
+  }
+
+  /* Убираем ограничения стартового шаблона Vue */
   #app {
-    display: grid;
-    grid-template-columns: 1fr 1fr;
-    padding: 0 2rem;
+    min-height: 100vh;
+    padding: 0;
+    display: block;
   }
 }
