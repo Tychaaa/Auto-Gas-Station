@@ -14,10 +14,10 @@ const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Запр
 
 // Доступные варианты топлива
 const FUEL_TYPES = [
-  { id: 'АИ-92', name: 'АИ-92', grade: 'Регулярный' },
-  { id: 'АИ-95', name: 'АИ-95', grade: 'Улучшенный' },
-  { id: 'АИ-98', name: 'АИ-98', grade: 'Премиум' },
-  { id: 'ДТ', name: 'ДТ', grade: 'Дизель' },
+  { id: 'АИ-92', name: 'АИ-92', grade: 'Регулярный', pricePerLiter: 61.53 },
+  { id: 'АИ-95', name: 'АИ-95', grade: 'Улучшенный', pricePerLiter: 65.14 },
+  { id: 'АИ-100', name: 'АИ-100', grade: 'Премиум', pricePerLiter: 87.80 },
+  { id: 'ДТ', name: 'ДТ', grade: 'Дизель', pricePerLiter: 78.61 },
 ] as const
 
 const selectedFuel = computed(() => store.selectionDraft.fuelType)
@@ -53,18 +53,26 @@ function handleNext(): void {
     <main class="flex-1 flex flex-col items-center justify-center gap-8 px-8 py-10">
       <!-- Сетка карточек топлива -->
       <div
-        class="grid grid-cols-4 gap-5 w-full max-w-4xl"
+        class="grid grid-cols-4 gap-5 w-full max-w-5xl"
         role="group"
         aria-label="Виды топлива"
       >
-        <FuelCard
-          v-for="fuel in FUEL_TYPES"
+        <div
+          v-for="(fuel, index) in FUEL_TYPES"
           :key="fuel.id"
-          :name="fuel.name"
-          :grade="fuel.grade"
-          :selected="selectedFuel === fuel.id"
-          @select="selectFuel(fuel.id)"
-        />
+          class="flex flex-col items-center gap-2"
+        >
+          <p class="font-karla text-sm text-fuel-olive">
+            Колонка {{ index + 1 }}
+          </p>
+          <FuelCard
+            :name="fuel.name"
+            :grade="fuel.grade"
+            :price-per-liter="fuel.pricePerLiter"
+            :selected="selectedFuel === fuel.id"
+            @select="selectFuel(fuel.id)"
+          />
+        </div>
       </div>
 
       <!-- Подсказка для пользователя -->

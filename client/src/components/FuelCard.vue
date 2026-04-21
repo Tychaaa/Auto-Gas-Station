@@ -4,6 +4,8 @@ defineProps<{
   name: string
   /** Короткая пометка под названием */
   grade: string
+  /** Цена за литр в рублях */
+  pricePerLiter: number
   /** Флаг выбранной карточки */
   selected?: boolean
 }>()
@@ -63,6 +65,14 @@ defineEmits<{
     >
       {{ grade }}
     </span>
+
+    <!-- Цена за литр -->
+    <div
+      class="font-rubik font-semibold text-xl leading-none px-4 py-2 rounded-lg transition-all duration-200"
+      :class="selected ? 'bg-white/15 text-white' : 'bg-fuel-cream text-fuel-forest'"
+    >
+      {{ pricePerLiter }} ₽/л
+    </div>
 
     <!-- Индикатор выбора -->
     <div
