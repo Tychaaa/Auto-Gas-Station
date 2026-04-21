@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
 import StepIndicator from '@/components/StepIndicator.vue'
@@ -126,7 +126,7 @@ async function handleRefresh(): Promise<void> {
 
   isRefreshing.value = true
   try {
-    await store.refreshTransaction()
+    await store.pollFuelingProgressOnce()
   } finally {
     isRefreshing.value = false
   }
@@ -146,6 +146,21 @@ function finishFlow(): void {
   }
   void router.push('/payment/result')
 }
+
+onMounted(() => {
+  if (transaction.value?.status === 'paid') {
+    void store.startFuelingFlow()
+    return
+  }
+
+  if (transaction.value?.status === 'fueling') {
+    store.startFuelingPolling()
+  }
+})
+
+onUnmounted(() => {
+  store.stopFuelingPolling()
+})
 </script>
 
 <template>
@@ -246,12 +261,12 @@ function finishFlow(): void {
         <div class="flex items-center gap-4">
           <button
             type="button"
-            :disabled="isRefreshing || !store.transactionId"
-            :aria-disabled="isRefreshing || !store.transactionId"
+            :disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
+            :aria-disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
             class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
                   focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
             :class="
-              isRefreshing || !store.transactionId
+              isRefreshing || !store.transactionId || store.isStartingFueling
                 ? 'bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed'
                 : 'bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95 shadow-md shadow-fuel-lime/20'
             "
