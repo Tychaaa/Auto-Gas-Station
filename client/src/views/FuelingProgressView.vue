@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue'
+import { useRouter } from 'vue-router'
 
 import StepIndicator from '@/components/StepIndicator.vue'
+import { useTransactionFlowStore } from '@/stores'
 
 const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Заправка'] as const
 
-type FuelingUiStateKey = 'starting' | 'dispensing' | 'completed_waiting_fiscal' | 'failed'
+type ScreenMode = 'ready' | 'no-transaction' | 'wrong-stage'
 
 interface FuelingUiState {
   title: string
@@ -13,66 +15,136 @@ interface FuelingUiState {
   providerStatus: string
   dispensedLiters: number
   targetLiters: number
+  progressPercent: number
+  badgeLabel: string
   badgeClass: string
 }
 
-const STATE_SEQUENCE: FuelingUiStateKey[] = ['starting', 'dispensing', 'completed_waiting_fiscal', 'failed']
+const router = useRouter()
+const store = useTransactionFlowStore()
+const isRefreshing = ref(false)
 
-const STATE_LABELS: Record<FuelingUiStateKey, string> = {
-  starting: 'Подготовка колонки',
-  dispensing: 'Отпуск топлива',
-  completed_waiting_fiscal: 'Ожидание чека',
-  failed: 'Ошибка процесса',
-}
+const transaction = computed(() => store.transaction)
+const errorMessage = computed(() => transaction.value?.fuelingError || store.lastError?.message || '')
 
-const UI_STATES: Record<FuelingUiStateKey, FuelingUiState> = {
-  starting: {
-    title: 'Подготовка к заправке',
-    description: 'Колонка принимает команду. Пожалуйста, зафиксируйте пистолет в баке.',
-    providerStatus: 'starting',
-    dispensedLiters: 0,
-    targetLiters: 30,
-    badgeClass: 'bg-fuel-olive/15 text-fuel-forest border border-fuel-olive/30',
-  },
-  dispensing: {
-    title: 'Идет отпуск топлива',
-    description: 'Топливо подается. Следите за индикатором, процесс обновляется в реальном времени.',
-    providerStatus: 'dispensing',
-    dispensedLiters: 18.6,
-    targetLiters: 30,
-    badgeClass: 'bg-fuel-lime/20 text-fuel-forest border border-fuel-lime/40',
-  },
-  completed_waiting_fiscal: {
-    title: 'Заправка завершена',
-    description: 'Отпуск топлива завершен. Ожидаем подтверждение и формирование чека.',
-    providerStatus: 'completed_waiting_fiscal',
-    dispensedLiters: 30,
-    targetLiters: 30,
-    badgeClass: 'bg-fuel-lime text-white border border-fuel-lime',
-  },
-  failed: {
-    title: 'Не удалось завершить заправку',
-    description: 'Произошла ошибка топливного контура. Обратитесь к оператору для продолжения.',
-    providerStatus: 'failed',
-    dispensedLiters: 7.4,
-    targetLiters: 30,
-    badgeClass: 'bg-red-100 text-red-700 border border-red-200',
-  },
-}
+const screenMode = computed<ScreenMode>(() => {
+  if (!transaction.value) {
+    return 'no-transaction'
+  }
 
-const activeStateKey = ref<FuelingUiStateKey>('dispensing')
+  const status = transaction.value.status
+  if (status !== 'fueling' && status !== 'fiscalizing' && status !== 'completed' && status !== 'failed') {
+    return 'wrong-stage'
+  }
 
-const activeState = computed(() => UI_STATES[activeStateKey.value])
-
-const progressPercent = computed(() => {
-  const { dispensedLiters, targetLiters } = activeState.value
-  if (targetLiters <= 0) return 0
-  const normalized = Math.round((dispensedLiters / targetLiters) * 100)
-  return Math.min(100, Math.max(0, normalized))
+  return 'ready'
 })
 
-function selectState(nextState: FuelingUiStateKey): void {
-  activeStateKey.value = nextState
+const uiState = computed<FuelingUiState>(() => {
+  const tx = transaction.value
+
+  if (!tx) {
+    return {
+      title: 'Транзакция не найдена',
+      description: 'Для просмотра прогресса сначала начните сценарий заправки.',
+      providerStatus: 'none',
+      dispensedLiters: 0,
+      targetLiters: 0,
+      progressPercent: 0,
+      badgeLabel: 'Нет данных',
+      badgeClass: 'bg-fuel-olive/15 text-fuel-forest border border-fuel-olive/30',
+    }
+  }
+
+  const targetLiters = tx.liters > 0 ? tx.liters : Math.max(tx.dispensedLiters, 0)
+  const fuelingStatus = tx.fuelingStatus
+  const progressByVolume =
+    targetLiters > 0
+      ? Math.min(100, Math.max(0, Math.round((tx.dispensedLiters / targetLiters) * 100)))
+      : 0
+
+  if (tx.status === 'failed' || fuelingStatus === 'failed') {
+    return {
+      title: 'Не удалось завершить заправку',
+      description: errorMessage.value || 'Произошла ошибка топливного контура. Обратитесь к оператору.',
+      providerStatus: fuelingStatus,
+      dispensedLiters: tx.dispensedLiters,
+      targetLiters,
+      progressPercent: progressByVolume,
+      badgeLabel: 'Ошибка процесса',
+      badgeClass: 'bg-red-100 text-red-700 border border-red-200',
+    }
+  }
+
+  if (tx.status === 'completed' || tx.status === 'fiscalizing' || fuelingStatus === 'completed_waiting_fiscal') {
+    return {
+      title: tx.status === 'completed' ? 'Чек сформирован' : 'Заправка завершена',
+      description:
+        tx.status === 'completed'
+          ? 'Операция полностью завершена. Спасибо за использование сервиса.'
+          : 'Отпуск топлива завершен. Ожидаем подтверждение и формирование чека.',
+      providerStatus: fuelingStatus,
+      dispensedLiters: tx.dispensedLiters,
+      targetLiters,
+      progressPercent: 100,
+      badgeLabel: tx.status === 'completed' ? 'Завершено' : 'Ожидание чека',
+      badgeClass: 'bg-fuel-lime text-white border border-fuel-lime',
+    }
+  }
+
+  if (fuelingStatus === 'starting') {
+    return {
+      title: 'Подготовка к заправке',
+      description: 'Колонка принимает команду. Пожалуйста, зафиксируйте пистолет в баке.',
+      providerStatus: fuelingStatus,
+      dispensedLiters: tx.dispensedLiters,
+      targetLiters,
+      progressPercent: tx.dispensedLiters > 0 ? progressByVolume : 10,
+      badgeLabel: 'Подготовка колонки',
+      badgeClass: 'bg-fuel-olive/15 text-fuel-forest border border-fuel-olive/30',
+    }
+  }
+
+  return {
+    title: 'Идет отпуск топлива',
+    description: 'Топливо подается. Следите за индикатором и обновляйте статус вручную.',
+    providerStatus: fuelingStatus,
+    dispensedLiters: tx.dispensedLiters,
+    targetLiters,
+    progressPercent: progressByVolume,
+    badgeLabel: 'Отпуск топлива',
+    badgeClass: 'bg-fuel-lime/20 text-fuel-forest border border-fuel-lime/40',
+  }
+})
+
+const canFinish = computed(() => transaction.value?.status === 'completed' || transaction.value?.status === 'failed')
+
+async function handleRefresh(): Promise<void> {
+  if (isRefreshing.value || !store.transactionId) {
+    return
+  }
+
+  isRefreshing.value = true
+  try {
+    await store.refreshTransaction()
+  } finally {
+    isRefreshing.value = false
+  }
+}
+
+function goToFuelSelect(): void {
+  void router.push('/select/fuel')
+}
+
+function goToOrderParams(): void {
+  void router.push('/select/order')
+}
+
+function finishFlow(): void {
+  if (!canFinish.value) {
+    return
+  }
+  void router.push('/payment/result')
 }
 </script>
 
@@ -93,25 +165,28 @@ function selectState(nextState: FuelingUiStateKey): void {
     />
 
     <main class="flex-1 px-8 py-10">
-      <section class="w-full max-w-5xl mx-auto bg-white rounded-2xl border border-fuel-olive/20 shadow-sm p-8">
+      <section
+        v-if="screenMode === 'ready'"
+        class="w-full max-w-5xl mx-auto bg-white rounded-2xl border border-fuel-olive/20 shadow-sm p-8"
+      >
         <div class="flex items-start justify-between gap-6 mb-8">
           <div class="space-y-2">
             <p class="font-karla text-sm text-fuel-olive tracking-wide uppercase">
               Текущий этап
             </p>
             <h2 class="font-rubik text-3xl font-bold text-fuel-forest">
-              {{ activeState.title }}
+              {{ uiState.title }}
             </h2>
             <p class="font-karla text-fuel-olive text-base max-w-2xl">
-              {{ activeState.description }}
+              {{ uiState.description }}
             </p>
           </div>
 
           <span
             class="font-karla text-xs font-semibold tracking-widest uppercase px-4 py-2 rounded-full whitespace-nowrap"
-            :class="activeState.badgeClass"
+            :class="uiState.badgeClass"
           >
-            {{ STATE_LABELS[activeStateKey] }}
+            {{ uiState.badgeLabel }}
           </span>
         </div>
 
@@ -121,7 +196,7 @@ function selectState(nextState: FuelingUiStateKey): void {
               Статус колонки
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ activeState.providerStatus }}
+              {{ uiState.providerStatus }}
             </p>
           </article>
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
@@ -129,7 +204,7 @@ function selectState(nextState: FuelingUiStateKey): void {
               Отпущено
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ activeState.dispensedLiters.toFixed(1) }} л
+              {{ uiState.dispensedLiters.toFixed(1) }} л
             </p>
           </article>
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
@@ -137,7 +212,7 @@ function selectState(nextState: FuelingUiStateKey): void {
               План
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ activeState.targetLiters.toFixed(1) }} л
+              {{ uiState.targetLiters.toFixed(1) }} л
             </p>
           </article>
         </div>
@@ -148,54 +223,103 @@ function selectState(nextState: FuelingUiStateKey): void {
               Прогресс заправки
             </p>
             <p class="font-rubik text-sm font-semibold text-fuel-forest">
-              {{ progressPercent }}%
+              {{ uiState.progressPercent }}%
             </p>
           </div>
           <div class="h-4 rounded-full bg-fuel-olive/15 overflow-hidden">
             <div
               class="h-full bg-fuel-lime transition-all duration-500"
-              :style="{ width: `${progressPercent}%` }"
+              :style="{ width: `${uiState.progressPercent}%` }"
             />
           </div>
         </div>
 
-        <div class="flex flex-wrap items-center gap-3 mb-8">
-          <p class="font-karla text-sm text-fuel-olive mr-1">
-            Демо-состояние:
+        <div
+          v-if="errorMessage"
+          class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3"
+        >
+          <p class="font-karla text-sm text-red-700">
+            {{ errorMessage }}
           </p>
-          <button
-            v-for="state in STATE_SEQUENCE"
-            :key="state"
-            type="button"
-            class="font-karla text-xs font-semibold uppercase tracking-widest px-4 py-2 rounded-full border transition-all duration-200
-                   focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            :class="
-              activeStateKey === state
-                ? 'bg-fuel-olive text-white border-fuel-olive'
-                : 'bg-white text-fuel-olive border-fuel-olive/30 hover:border-fuel-lime hover:text-fuel-forest'
-            "
-            @click="selectState(state)"
-          >
-            {{ STATE_LABELS[state] }}
-          </button>
         </div>
 
         <div class="flex items-center gap-4">
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed"
+            :disabled="isRefreshing || !store.transactionId"
+            :aria-disabled="isRefreshing || !store.transactionId"
+            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
+                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+            :class="
+              isRefreshing || !store.transactionId
+                ? 'bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed'
+                : 'bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95 shadow-md shadow-fuel-lime/20'
+            "
+            @click="handleRefresh"
           >
-            Обновить
+            {{ isRefreshing ? 'Обновление...' : 'Обновить' }}
           </button>
           <button
             type="button"
-            disabled
-            aria-disabled="true"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl bg-fuel-olive/25 text-fuel-olive/60 cursor-not-allowed"
+            :disabled="!canFinish"
+            :aria-disabled="!canFinish"
+            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
+                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
+            :class="
+              canFinish
+                ? 'bg-fuel-olive text-white hover:bg-fuel-forest active:scale-95'
+                : 'bg-fuel-olive/25 text-fuel-olive/60 cursor-not-allowed'
+            "
+            @click="finishFlow"
           >
             Завершить
+          </button>
+        </div>
+      </section>
+
+      <section
+        v-else-if="screenMode === 'no-transaction'"
+        class="w-full max-w-3xl mx-auto bg-white rounded-2xl border border-fuel-olive/20 shadow-sm p-8 text-center"
+      >
+        <h2 class="font-rubik text-2xl font-bold text-fuel-forest mb-2">
+          Нет активной транзакции
+        </h2>
+        <p class="font-karla text-fuel-olive mb-6">
+          Для отображения прогресса начните новую сессию заправки.
+        </p>
+        <button
+          type="button"
+          class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl bg-fuel-lime text-white hover:bg-fuel-forest transition-all duration-200"
+          @click="goToFuelSelect"
+        >
+          К выбору топлива
+        </button>
+      </section>
+
+      <section
+        v-else
+        class="w-full max-w-3xl mx-auto bg-white rounded-2xl border border-fuel-olive/20 shadow-sm p-8 text-center"
+      >
+        <h2 class="font-rubik text-2xl font-bold text-fuel-forest mb-2">
+          Этап заправки еще не начался
+        </h2>
+        <p class="font-karla text-fuel-olive mb-6">
+          Текущий статус транзакции не относится к топливному контуру.
+        </p>
+        <div class="flex items-center justify-center gap-3">
+          <button
+            type="button"
+            class="font-rubik font-semibold text-lg px-8 py-3 rounded-xl bg-fuel-lime text-white hover:bg-fuel-forest transition-all duration-200"
+            @click="goToOrderParams"
+          >
+            К параметрам
+          </button>
+          <button
+            type="button"
+            class="font-rubik font-semibold text-lg px-8 py-3 rounded-xl bg-fuel-olive text-white hover:bg-fuel-forest transition-all duration-200"
+            @click="handleRefresh"
+          >
+            Обновить статус
           </button>
         </div>
       </section>
