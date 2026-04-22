@@ -1,8 +1,10 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 
+import { getFuelPrices } from '@/api'
 import { useTransactionFlowStore } from '@/stores'
+import type { FuelPrice } from '@/types'
 import StepIndicator from '@/components/StepIndicator.vue'
 import FuelCard from '@/components/FuelCard.vue'
 
@@ -11,16 +13,30 @@ const store = useTransactionFlowStore()
 
 // Шаги индикатора в верхней части экрана
 const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Заправка'] as const
+const FUEL_DISPLAY_ORDER = ['АИ-92', 'АИ-95', 'АИ-100', 'ДТ'] as const
 
-// Доступные варианты топлива
-const FUEL_TYPES = [
-  { id: 'АИ-92', name: 'АИ-92', grade: 'Регулярный' },
-  { id: 'АИ-95', name: 'АИ-95', grade: 'Улучшенный' },
-  { id: 'АИ-98', name: 'АИ-98', grade: 'Премиум' },
-  { id: 'ДТ', name: 'ДТ', grade: 'Дизель' },
-] as const
+const fuelPrices = ref<FuelPrice[]>([])
+const isLoadingPrices = ref(false)
+const pricesLoadError = ref('')
 
 const selectedFuel = computed(() => store.selectionDraft.fuelType)
+const hasFuelPrices = computed(() => fuelPrices.value.length > 0)
+const orderedFuelPrices = computed(() => {
+  const orderIndexMap = new Map<string, number>()
+  FUEL_DISPLAY_ORDER.forEach((fuelType, index) => {
+    orderIndexMap.set(fuelType, index)
+  })
+
+  return [...fuelPrices.value].sort((left, right) => {
+    const leftIndex = orderIndexMap.get(left.fuelType) ?? Number.MAX_SAFE_INTEGER
+    const rightIndex = orderIndexMap.get(right.fuelType) ?? Number.MAX_SAFE_INTEGER
+
+    if (leftIndex !== rightIndex) {
+      return leftIndex - rightIndex
+    }
+    return left.fuelType.localeCompare(right.fuelType, 'ru')
+  })
+})
 
 // Сохраняет выбранный тип топлива в store
 function selectFuel(fuelId: string): void {
@@ -32,6 +48,24 @@ function handleNext(): void {
   if (!selectedFuel.value) return
   void router.push('/select/order')
 }
+
+async function loadFuelPrices(): Promise<void> {
+  isLoadingPrices.value = true
+  pricesLoadError.value = ''
+  try {
+    fuelPrices.value = await getFuelPrices()
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Не удалось загрузить актуальные цены'
+    pricesLoadError.value = message
+    fuelPrices.value = []
+  } finally {
+    isLoadingPrices.value = false
+  }
+}
+
+onMounted(() => {
+  void loadFuelPrices()
+})
 </script>
 
 <template>
@@ -53,18 +87,50 @@ function handleNext(): void {
     <main class="flex-1 flex flex-col items-center justify-center gap-8 px-8 py-10">
       <!-- Сетка карточек топлива -->
       <div
-        class="grid grid-cols-4 gap-5 w-full max-w-4xl"
+        v-if="isLoadingPrices"
+        class="font-karla text-base text-fuel-olive"
+      >
+        Загружаем актуальные цены...
+      </div>
+
+      <div
+        v-else-if="pricesLoadError"
+        class="flex flex-col items-center gap-3"
+      >
+        <p class="font-karla text-base text-red-600">
+          {{ pricesLoadError }}
+        </p>
+        <button
+          type="button"
+          class="font-rubik font-medium px-4 py-2 rounded-lg bg-fuel-forest text-white hover:bg-fuel-olive transition-colors"
+          @click="loadFuelPrices"
+        >
+          Повторить
+        </button>
+      </div>
+
+      <div
+        v-else
+        class="grid grid-cols-4 gap-5 w-full max-w-5xl"
         role="group"
         aria-label="Виды топлива"
       >
-        <FuelCard
-          v-for="fuel in FUEL_TYPES"
-          :key="fuel.id"
-          :name="fuel.name"
-          :grade="fuel.grade"
-          :selected="selectedFuel === fuel.id"
-          @select="selectFuel(fuel.id)"
-        />
+        <div
+          v-for="(fuel, index) in orderedFuelPrices"
+          :key="fuel.fuelType"
+          class="flex flex-col items-center gap-2"
+        >
+          <p class="font-karla text-sm text-fuel-olive">
+            Колонка {{ index + 1 }}
+          </p>
+          <FuelCard
+            :name="fuel.name"
+            :grade="fuel.grade"
+            :price-per-liter="fuel.pricePerLiter"
+            :selected="selectedFuel === fuel.fuelType"
+            @select="selectFuel(fuel.fuelType)"
+          />
+        </div>
       </div>
 
       <!-- Подсказка для пользователя -->
@@ -82,8 +148,8 @@ function handleNext(): void {
       <!-- Кнопка перехода к следующему шагу -->
       <button
         type="button"
-        :disabled="!selectedFuel"
-        :aria-disabled="!selectedFuel"
+        :disabled="!selectedFuel || !hasFuelPrices"
+        :aria-disabled="!selectedFuel || !hasFuelPrices"
         class="font-rubik font-semibold text-lg px-14 py-4 rounded-xl
                transition-all duration-200
                focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"

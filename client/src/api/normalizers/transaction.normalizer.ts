@@ -8,6 +8,14 @@ interface BackendTransaction {
   AmountRub: number
   Liters: number
   Preset: string
+  PriceVersionID: number
+  PriceVersionTag: string
+  UnitPriceMinor: number
+  ComputedAmountMinor: number
+  Currency: string
+  PricingSnapshotAt: string
+  PriceLockedUntil: string
+  PriceWasRepriced: boolean
   Status: string
   PaymentStatus: string
   FiscalStatus: string
@@ -51,6 +59,14 @@ export function normalizeTransactionResponse(payload: unknown): Omit<Transaction
     amountRub: raw.AmountRub,
     liters: raw.Liters,
     preset: raw.Preset,
+    priceVersionId: raw.PriceVersionID,
+    priceVersionTag: raw.PriceVersionTag,
+    unitPriceMinor: raw.UnitPriceMinor,
+    computedAmountMinor: raw.ComputedAmountMinor,
+    currency: raw.Currency,
+    pricingSnapshotAt: raw.PricingSnapshotAt,
+    priceLockedUntil: raw.PriceLockedUntil,
+    priceWasRepriced: raw.PriceWasRepriced,
     status: raw.Status,
     paymentStatus: raw.PaymentStatus,
     fiscalStatus: raw.FiscalStatus,

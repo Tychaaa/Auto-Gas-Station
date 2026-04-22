@@ -20,6 +20,9 @@ func main() {
 		mode = gin.DebugMode
 	}
 	gin.SetMode(mode)
+	if err := initPricingFromEnv(); err != nil {
+		log.Fatalf("pricing init failed: %v", err)
+	}
 	initPaymentAdapterFromEnv()
 	
 	if err := initFuelingAdapterFromEnv(); err != nil {
@@ -28,6 +31,7 @@ func main() {
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
+	router.Use(newCorsMiddleware())
 
 	router.GET("/healthz", func(c *gin.Context) {
 		c.JSON(http.StatusOK, gin.H{"status": "ok"})

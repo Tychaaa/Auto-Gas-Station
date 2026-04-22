@@ -26,6 +26,14 @@ export const transactionSchema = z.object({
   amountRub: z.number(),
   liters: z.number(),
   preset: z.string(),
+  priceVersionId: z.number().int(),
+  priceVersionTag: z.string(),
+  unitPriceMinor: z.number().int(),
+  computedAmountMinor: z.number().int(),
+  currency: z.string(),
+  pricingSnapshotAt: z.string(),
+  priceLockedUntil: z.string(),
+  priceWasRepriced: z.boolean(),
   status: transactionStatusSchema,
   paymentStatus: paymentStatusSchema,
   fiscalStatus: fiscalStatusSchema,
@@ -44,6 +52,21 @@ export const transactionSchema = z.object({
   dispensePartial: z.boolean(),
 })
 
+export const fuelPriceSchema = z.object({
+  fuelType: z.string(),
+  name: z.string(),
+  grade: z.string(),
+  pricePerLiter: z.number(),
+  currency: z.string(),
+  priceVersionId: z.number().int(),
+  versionTag: z.string(),
+  effectiveFrom: z.string(),
+})
+
+export const fuelPricesResponseSchema = z.object({
+  items: z.array(fuelPriceSchema),
+})
+
 // Схема ошибки от сервера
 export const apiErrorSchema = z.object({
   error: z.string(),
@@ -53,6 +76,7 @@ export const apiErrorSchema = z.object({
 export type TransactionSchema = z.infer<typeof transactionSchema>
 export type SelectionPayloadSchema = z.infer<typeof selectionPayloadSchema>
 export type ApiErrorSchema = z.infer<typeof apiErrorSchema>
+export type FuelPriceSchema = z.infer<typeof fuelPriceSchema>
 
 // Проверяет и приводит ответ с транзакцией
 export function parseTransactionResponse(input: unknown): TransactionSchema {
@@ -62,4 +86,8 @@ export function parseTransactionResponse(input: unknown): TransactionSchema {
 // Проверяет и приводит ответ с ошибкой
 export function parseApiError(input: unknown): ApiErrorSchema {
   return apiErrorSchema.parse(input)
+}
+
+export function parseFuelPricesResponse(input: unknown): FuelPriceSchema[] {
+  return fuelPricesResponseSchema.parse(input).items
 }
