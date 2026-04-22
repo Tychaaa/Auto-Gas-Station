@@ -80,7 +80,7 @@ func main() {
 		stepHundredths:  int64(math.Round(cfg.StepLiters * 100)),
 	}
 	if state.stepHundredths <= 0 {
-		state.stepHundredths = 25
+		state.stepHundredths = 50
 	}
 
 	log.Printf("fuel emulator started on %s address=%d scenario=%s", cfg.serial.Port, cfg.serial.Address, cfg.Scenario)
