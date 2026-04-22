@@ -1,4 +1,4 @@
-import type { SelectionPayload, Transaction } from './transaction'
+import type { FuelPrice, SelectionPayload, Transaction } from './transaction'
 
 // Тело запросов для создания и обновления выбора
 export type CreateTransactionRequest = SelectionPayload
@@ -10,6 +10,7 @@ export type UpdateSelectionResponse = Transaction
 export type GetTransactionResponse = Transaction
 export type PaymentStartResponse = Transaction
 export type PaymentStatusResponse = Transaction
+export type FuelPricesResponse = FuelPrice[]
 
 // Ошибка, которую может вернуть сервер
 export interface ApiErrorResponse {

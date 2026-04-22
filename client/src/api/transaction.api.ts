@@ -1,7 +1,8 @@
-import { parseTransactionResponse, selectionPayloadSchema } from '@/schemas/transaction.schema'
+import { parseFuelPricesResponse, parseTransactionResponse, selectionPayloadSchema } from '@/schemas/transaction.schema'
 import type {
   CreateTransactionRequest,
   CreateTransactionResponse,
+  FuelPricesResponse,
   GetTransactionResponse,
   PaymentStartResponse,
   PaymentStatusResponse,
@@ -61,4 +62,10 @@ export async function startPayment(transactionId: string): Promise<PaymentStartR
 export async function getPaymentStatus(transactionId: string): Promise<PaymentStatusResponse> {
   const response = await httpPost<unknown>(`/transactions/${encodeTransactionId(transactionId)}/payment/status`)
   return parseNormalizedTransaction(response)
+}
+
+// Загружает актуальные цены для шага выбора топлива
+export async function getFuelPrices(): Promise<FuelPricesResponse> {
+  const response = await httpGet<unknown>('/fuel-prices')
+  return parseFuelPricesResponse(response)
 }

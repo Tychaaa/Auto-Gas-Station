@@ -57,6 +57,14 @@ export interface Transaction {
   amountRub: number
   liters: number
   preset: string
+  priceVersionId: number
+  priceVersionTag: string
+  unitPriceMinor: number
+  computedAmountMinor: number
+  currency: string
+  pricingSnapshotAt: string
+  priceLockedUntil: string
+  priceWasRepriced: boolean
   status: TransactionStatus
   paymentStatus: PaymentStatus
   fiscalStatus: FiscalStatus
@@ -73,4 +81,15 @@ export interface Transaction {
   dispensedLiters: number
   dispenseComplete: boolean
   dispensePartial: boolean
+}
+
+export interface FuelPrice {
+  fuelType: FuelType
+  name: string
+  grade: string
+  pricePerLiter: number
+  currency: string
+  priceVersionId: number
+  versionTag: string
+  effectiveFrom: string
 }
