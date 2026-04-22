@@ -3,6 +3,9 @@ import type {
   CreateTransactionRequest,
   CreateTransactionResponse,
   FuelPricesResponse,
+  FuelingProgressResponse,
+  FuelingStartRequest,
+  FuelingStartResponse,
   GetTransactionResponse,
   PaymentStartResponse,
   PaymentStatusResponse,
@@ -27,6 +30,16 @@ function validateSelectionPayload<TPayload extends CreateTransactionRequest | Up
 // Безопасно кодирует идентификатор для URL
 function encodeTransactionId(transactionId: string): string {
   return encodeURIComponent(transactionId)
+}
+
+// Достает вложенную транзакцию из ответа fueling API
+function parseFuelingEnvelopeTransaction(payload: unknown): FuelingStartResponse {
+  if (!payload || typeof payload !== 'object') {
+    throw new Error('Fueling payload must be an object')
+  }
+
+  const transactionPayload = (payload as Record<string, unknown>).transaction
+  return parseNormalizedTransaction(transactionPayload)
 }
 
 // Создает новую транзакцию
@@ -68,4 +81,16 @@ export async function getPaymentStatus(transactionId: string): Promise<PaymentSt
 export async function getFuelPrices(): Promise<FuelPricesResponse> {
   const response = await httpGet<unknown>('/fuel-prices')
   return parseFuelPricesResponse(response)
+}
+
+// Запускает отпуск топлива для транзакции
+export async function startFueling(transactionId: string, payload: FuelingStartRequest): Promise<FuelingStartResponse> {
+  const response = await httpPost<unknown>(`/transactions/${encodeTransactionId(transactionId)}/fueling/start`, payload)
+  return parseFuelingEnvelopeTransaction(response)
+}
+
+// Запрашивает прогресс отпуска топлива
+export async function getFuelingProgress(transactionId: string): Promise<FuelingProgressResponse> {
+  const response = await httpPost<unknown>(`/transactions/${encodeTransactionId(transactionId)}/fueling/progress`)
+  return parseFuelingEnvelopeTransaction(response)
 }

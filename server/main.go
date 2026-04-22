@@ -24,6 +24,10 @@ func main() {
 		log.Fatalf("pricing init failed: %v", err)
 	}
 	initPaymentAdapterFromEnv()
+	
+	if err := initFuelingAdapterFromEnv(); err != nil {
+		log.Fatalf("fueling adapter init failed: %v", err)
+	}
 
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())

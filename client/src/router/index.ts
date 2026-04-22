@@ -17,6 +17,7 @@ const FLOW_PATHS = {
   orderSelect: '/select/order',
   paymentPending: '/payment/pending',
   paymentResult: '/payment/result',
+  fuelingProgress: '/fueling/progress',
 } as const
 
 // Маршруты приложения для сценария заправки
@@ -52,6 +53,11 @@ const routes: RouteRecordRaw[] = [
       requiresTransaction: true,
       requiresPaymentFinished: true,
     },
+  },
+  {
+    path: FLOW_PATHS.fuelingProgress,
+    name: 'fueling-progress',
+    component: () => import('@/views/FuelingProgressView.vue'),
   },
   {
     path: '/:pathMatch(.*)*',
