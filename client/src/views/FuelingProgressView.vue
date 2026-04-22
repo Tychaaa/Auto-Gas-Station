@@ -33,7 +33,10 @@ const screenMode = computed<ScreenMode>(() => {
   }
 
   const status = transaction.value.status
-  if (status !== 'fueling' && status !== 'fiscalizing' && status !== 'completed' && status !== 'failed') {
+  
+  // if (status !== 'fueling' && status !== 'fiscalizing' && status !== 'completed' && status !== 'failed') {
+  // TODO(release): убрать временный допуск paid в ready-state после завершения полного fueling flow.
+  if (status !== 'paid' && status !== 'fueling' && status !== 'fiscalizing' && status !== 'completed' && status !== 'failed') {
     return 'wrong-stage'
   }
 
