@@ -20,6 +20,9 @@ func main() {
 		mode = gin.DebugMode
 	}
 	gin.SetMode(mode)
+	if err := initPricingFromEnv(); err != nil {
+		log.Fatalf("pricing init failed: %v", err)
+	}
 	initPaymentAdapterFromEnv()
 
 	router := gin.New()
