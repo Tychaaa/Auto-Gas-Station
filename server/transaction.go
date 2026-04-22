@@ -51,22 +51,30 @@ const (
 
 // Данные заказа и текущие статусы проведения
 type Transaction struct {
-	ID               string
-	FuelType         string
-	OrderMode        string // Способ заказа amount liters или preset
-	AmountRub        int64
-	Liters           float64
-	Preset           string
-	Status           TransactionStatus
-	PaymentStatus    PaymentStatus
-	FiscalStatus     FiscalStatus
-	PaymentProvider  string
-	PaymentSessionID string
-	PaymentError     string
-	FiscalError      string
-	ReceiptNumber    string
-	CreatedAt        time.Time
-	UpdatedAt        time.Time
+	ID                  string
+	FuelType            string
+	OrderMode           string // Способ заказа amount liters или preset
+	AmountRub           int64
+	Liters              float64
+	Preset              string
+	PriceVersionID      int64
+	PriceVersionTag     string
+	UnitPriceMinor      int64
+	ComputedAmountMinor int64
+	Currency            string
+	PricingSnapshotAt   time.Time
+	PriceLockedUntil    time.Time
+	PriceWasRepriced    bool
+	Status              TransactionStatus
+	PaymentStatus       PaymentStatus
+	FiscalStatus        FiscalStatus
+	PaymentProvider     string
+	PaymentSessionID    string
+	PaymentError        string
+	FiscalError         string
+	ReceiptNumber       string
+	CreatedAt           time.Time
+	UpdatedAt           time.Time
 	// Поля топливного контура после оплаты и до MarkFiscalizing
 	FuelingStatus    FuelingStatus
 	FuelingError     string
