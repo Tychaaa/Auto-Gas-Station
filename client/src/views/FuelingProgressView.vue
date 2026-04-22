@@ -23,6 +23,21 @@ interface FuelingUiState {
 const router = useRouter()
 const store = useTransactionFlowStore()
 const isRefreshing = ref(false)
+const isPreparingDemoTransaction = ref(false)
+
+const DEV_SELECTION_DRAFT = {
+  fuelType: 'АИ-95',
+  orderMode: 'liters',
+  amountRub: 0,
+  liters: 30,
+  preset: '',
+} as const
+
+const DEV_FUELING_CONFIG = {
+  pumpId: '1',
+  nozzleId: '1',
+  scenario: '',
+} as const
 
 const transaction = computed(() => store.transaction)
 const errorMessage = computed(() => transaction.value?.fuelingError || store.lastError?.message || '')
@@ -121,6 +136,45 @@ const uiState = computed<FuelingUiState>(() => {
 })
 
 const canFinish = computed(() => transaction.value?.status === 'completed' || transaction.value?.status === 'failed')
+const canStartFuelingManually = computed(() => store.canStartFueling)
+const canCreateTransactionManually = computed(() => !isPreparingDemoTransaction.value)
+
+// TODO(release): удалить временные служебные кнопки после завершения сквозного UI flow.
+async function handleManualTransactionCreate(): Promise<void> {
+  if (!canCreateTransactionManually.value) {
+    return
+  }
+
+  isPreparingDemoTransaction.value = true
+
+  try {
+    store.resetFlow()
+    store.setSelectionDraft(DEV_SELECTION_DRAFT)
+    store.setFuelingConfig(DEV_FUELING_CONFIG)
+
+    const createdTransaction = await store.submitSelection()
+    if (!createdTransaction) {
+      return
+    }
+
+    let paymentTransaction = await store.startPaymentFlow()
+    if (!paymentTransaction) {
+      return
+    }
+
+    // Временный dev-helper: дожидаемся автофинализации mock-платежа,
+    // чтобы экран можно было тестировать без ручного заполнения Pinia.
+    for (let attempt = 0; attempt < 10 && paymentTransaction.status === 'payment_pending'; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 500))
+      paymentTransaction = await store.pollPaymentStatusOnce()
+      if (!paymentTransaction) {
+        return
+      }
+    }
+  } finally {
+    isPreparingDemoTransaction.value = false
+  }
+}
 
 async function handleRefresh(): Promise<void> {
   if (isRefreshing.value || !store.transactionId) {
@@ -133,6 +187,14 @@ async function handleRefresh(): Promise<void> {
   } finally {
     isRefreshing.value = false
   }
+}
+
+async function handleManualFuelingStart(): Promise<void> {
+  if (!canStartFuelingManually.value) {
+    return
+  }
+
+  await store.startFuelingFlow()
 }
 
 function goToFuelSelect(): void {
@@ -168,6 +230,41 @@ onUnmounted(() => {
 
 <template>
   <div class="min-h-screen flex flex-col bg-fuel-cream">
+    <!-- TODO(release): удалить временные служебные кнопки для ручного dev-тестирования. -->
+    <div class="fixed top-4 left-4 z-20 flex items-center gap-2">
+      <button
+        type="button"
+        :disabled="!canCreateTransactionManually"
+        :aria-disabled="!canCreateTransactionManually"
+        class="font-rubik font-semibold text-sm px-4 py-2 rounded-lg border transition-all duration-200
+              focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
+        :class="
+          canCreateTransactionManually
+            ? 'bg-white text-fuel-forest border-fuel-olive/30 hover:bg-fuel-cream hover:border-fuel-lime shadow-sm'
+            : 'bg-white/80 text-fuel-olive/60 border-fuel-olive/20 cursor-not-allowed'
+        "
+        @click="handleManualTransactionCreate"
+      >
+        {{ isPreparingDemoTransaction ? 'Служебно: готовим...' : 'Служебно: создать транзакцию' }}
+      </button>
+
+      <button
+        type="button"
+        :disabled="!canStartFuelingManually"
+        :aria-disabled="!canStartFuelingManually"
+        class="font-rubik font-semibold text-sm px-4 py-2 rounded-lg border transition-all duration-200
+              focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
+        :class="
+          canStartFuelingManually
+            ? 'bg-fuel-lime text-white border-fuel-lime hover:bg-fuel-forest hover:border-fuel-forest shadow-md shadow-fuel-lime/20'
+            : 'bg-white/80 text-fuel-olive/60 border-fuel-olive/20 cursor-not-allowed'
+        "
+        @click="handleManualFuelingStart"
+      >
+        Служебно: начать налив
+      </button>
+    </div>
+
     <header class="bg-fuel-forest border-b border-fuel-olive/35 py-5 px-10 text-center shrink-0 shadow-sm">
       <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
         Автоматизированная АЗС
