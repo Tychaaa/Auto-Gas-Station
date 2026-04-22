@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gin-gonic/gin"
 )
@@ -50,7 +51,14 @@ func paymentStartHandler(c *gin.Context) {
 		return
 	}
 
-	// Ищем транзакцию и проверяем сумму для оплаты
+	if priceService == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "price service is not configured",
+		})
+		return
+	}
+
+	// Ищем транзакцию и проверяем что она в нужном статусе
 	txSnapshot, ok := transactionStore.Get(id)
 	if !ok {
 		c.JSON(http.StatusNotFound, gin.H{
@@ -58,18 +66,60 @@ func paymentStartHandler(c *gin.Context) {
 		})
 		return
 	}
-	if txSnapshot.AmountRub <= 0 {
-		c.JSON(http.StatusBadRequest, gin.H{
-			"error": "amountRub must be > 0 to start payment",
+	if txSnapshot.Status != TransactionStatusSelection {
+		c.JSON(http.StatusConflict, gin.H{
+			"error": ErrPaymentStartStateConflict.Error(),
 		})
 		return
+	}
+
+	// Перед стартом оплаты проверяем актуальность lock и при необходимости пересчитываем
+	pricingSnapshot, err := transactionStore.Update(id, func(tx *Transaction) error {
+		if tx.Status != TransactionStatusSelection {
+			return ErrPaymentStartStateConflict
+		}
+		if err := tx.ValidateSelection(); err != nil {
+			return err
+		}
+		if tx.ComputedAmountMinor <= 0 || tx.UnitPriceMinor <= 0 || tx.Currency == "" {
+			return priceService.ApplySelectionPricing(tx, selectionPriceLockTTL)
+		}
+		_, err := priceService.RepriceIfNeeded(tx, selectionPriceLockTTL, time.Now())
+		return err
+	})
+	if err != nil {
+		switch {
+		case errors.Is(err, ErrTransactionNotFound):
+			c.JSON(http.StatusNotFound, gin.H{
+				"error": "transaction not found",
+			})
+		case errors.Is(err, ErrPaymentStartStateConflict):
+			c.JSON(http.StatusConflict, gin.H{
+				"error": err.Error(),
+			})
+		default:
+			c.JSON(http.StatusBadRequest, gin.H{
+				"error": err.Error(),
+			})
+		}
+		return
+	}
+	if pricingSnapshot.ComputedAmountMinor <= 0 {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": "computed amount must be > 0 to start payment",
+		})
+		return
+	}
+	currency := pricingSnapshot.Currency
+	if strings.TrimSpace(currency) == "" {
+		currency = defaultPricingCurrency
 	}
 
 	// Запускаем платеж во внешнем адаптере
 	startResult, err := paymentAdapter.StartPayment(c.Request.Context(), PaymentStartInput{
 		ExternalTransactionID: id,
-		AmountMinor:           txSnapshot.AmountRub * 100,
-		Currency:              "RUB",
+		AmountMinor:           pricingSnapshot.ComputedAmountMinor,
+		Currency:              currency,
 	})
 	if err != nil {
 		c.JSON(http.StatusBadGateway, gin.H{
@@ -278,6 +328,24 @@ func createTransactionHandler(c *gin.Context) {
 		FiscalStatus:  FiscalStatusNone,
 		FuelingStatus: FuelingStatusNone,
 	}
+	if err := tx.ValidateSelection(); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	if priceService == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "price service is not configured",
+		})
+		return
+	}
+	if err := priceService.ApplySelectionPricing(tx, selectionPriceLockTTL); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
 
 	// Сохраняем транзакцию и возвращаем ее клиенту
 	created := transactionStore.Create(tx)
@@ -326,6 +394,12 @@ func updateSelectionHandler(c *gin.Context) {
 	}
 
 	// Обновляем только транзакцию в статусе выбора
+	if priceService == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "price service is not configured",
+		})
+		return
+	}
 	updated, err := transactionStore.Update(id, func(tx *Transaction) error {
 		if tx.Status != TransactionStatusSelection {
 			return ErrSelectionStateConflict
@@ -339,7 +413,10 @@ func updateSelectionHandler(c *gin.Context) {
 		tx.Preset = req.Preset
 
 		// Проверяем что новые данные валидны
-		return tx.ValidateSelection()
+		if err := tx.ValidateSelection(); err != nil {
+			return err
+		}
+		return priceService.ApplySelectionPricing(tx, selectionPriceLockTTL)
 	})
 	if err != nil {
 		// Возвращаем код ошибки в зависимости от причины
@@ -362,4 +439,24 @@ func updateSelectionHandler(c *gin.Context) {
 
 	// Отправляем обновленную транзакцию
 	c.JSON(http.StatusOK, updated)
+}
+
+func fuelPricesHandler(c *gin.Context) {
+	if priceService == nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": "price service is not configured",
+		})
+		return
+	}
+
+	prices, err := priceService.ListCurrentPrices()
+	if err != nil {
+		c.JSON(http.StatusBadGateway, gin.H{
+			"error": err.Error(),
+		})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{
+		"items": prices,
+	})
 }

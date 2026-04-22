@@ -15,6 +15,7 @@ func registerPaymentRoutes(r *gin.Engine) {
 	v1 := r.Group("/api/v1")
 
 	// Основные операции с транзакцией
+	v1.GET("/fuel-prices", fuelPricesHandler)
 	v1.POST("/transactions", createTransactionHandler)
 	v1.GET("/transactions/:id", getTransactionHandler)
 
