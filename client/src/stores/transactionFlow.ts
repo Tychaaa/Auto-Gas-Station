@@ -4,12 +4,14 @@ import { defineStore } from 'pinia'
 import {
   ApiClientError,
   createTransaction,
+  getFuelingProgress,
   getPaymentStatus,
   getTransaction,
+  startFueling,
   startPayment,
   updateSelection,
 } from '@/api'
-import type { SelectionPayload, Transaction } from '@/types'
+import type { FuelingStartRequest, SelectionPayload, Transaction } from '@/types'
 
 // Ошибка для отображения в UI
 export interface TransactionFlowError {
@@ -27,6 +29,14 @@ const DEFAULT_SELECTION_DRAFT: SelectionPayload = {
   preset: '',
 }
 
+type FuelingConfig = Required<FuelingStartRequest>
+
+const DEFAULT_FUELING_CONFIG: FuelingConfig = {
+  pumpId: '1',
+  nozzleId: '1',
+  scenario: '',
+}
+
 export const useTransactionFlowStore = defineStore('transactionFlow', () => {
   // Основное состояние сценария транзакции
   const transaction = ref<Transaction | null>(null)
@@ -36,9 +46,14 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
   // Флаги сетевых действий и поллинга
   const isSubmittingSelection = ref(false)
   const isStartingPayment = ref(false)
+  const isStartingFueling = ref(false)
   const isPollingPayment = ref(false)
+  const isPollingFueling = ref(false)
   const pollingTimerId = ref<number | null>(null)
+  const fuelingPollingTimerId = ref<number | null>(null)
   const isPollingRequestInFlight = ref(false)
+  const isFuelingPollingRequestInFlight = ref(false)
+  const fuelingConfig = ref<FuelingConfig>({ ...DEFAULT_FUELING_CONFIG })
 
   // Последняя ошибка для интерфейса
   const lastError = ref<TransactionFlowError | null>(null)
@@ -71,6 +86,15 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
       !isSubmittingSelection.value &&
       !isStartingPayment.value &&
       !isPollingPayment.value
+    )
+  })
+
+  const canStartFueling = computed(() => {
+    return (
+      transaction.value?.status === 'paid' &&
+      !isStartingFueling.value &&
+      !isPollingFueling.value &&
+      !isFuelingPollingRequestInFlight.value
     )
   })
 
@@ -116,6 +140,14 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
       ...patch,
     }
     clearError()
+  }
+
+  // Обновляет конфигурацию топливной колонки для API
+  function setFuelingConfig(patch: Partial<FuelingConfig>): void {
+    fuelingConfig.value = {
+      ...fuelingConfig.value,
+      ...patch,
+    }
   }
 
   // Создает транзакцию или обновляет существующую
@@ -247,14 +279,116 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Один запрос прогресса отпуска топлива с проверками
+  async function pollFuelingProgressOnce(): Promise<Transaction | null> {
+    if (isFuelingPollingRequestInFlight.value) {
+      return transaction.value
+    }
+    if (!transactionId.value) {
+      lastError.value = { message: 'Transaction id is not set' }
+      stopFuelingPolling()
+      return null
+    }
+    if (transaction.value?.status !== 'fueling') {
+      stopFuelingPolling()
+      return transaction.value
+    }
+
+    isFuelingPollingRequestInFlight.value = true
+    clearError()
+
+    try {
+      const nextTransaction = await getFuelingProgress(transactionId.value)
+      applyTransaction(nextTransaction)
+
+      if (nextTransaction.status !== 'fueling') {
+        stopFuelingPolling()
+      }
+
+      return nextTransaction
+    } catch (error) {
+      setStoreError(error)
+      stopFuelingPolling()
+      return null
+    } finally {
+      isFuelingPollingRequestInFlight.value = false
+    }
+  }
+
+  // Запускает периодический опрос прогресса заправки
+  function startFuelingPolling(intervalMs = 2000): void {
+    if (isPollingFueling.value || fuelingPollingTimerId.value !== null) {
+      return
+    }
+
+    isPollingFueling.value = true
+    fuelingPollingTimerId.value = window.setInterval(() => {
+      void pollFuelingProgressOnce()
+    }, intervalMs)
+  }
+
+  // Останавливает опрос заправки и очищает флаги
+  function stopFuelingPolling(): void {
+    if (fuelingPollingTimerId.value !== null) {
+      window.clearInterval(fuelingPollingTimerId.value)
+      fuelingPollingTimerId.value = null
+    }
+    isPollingFueling.value = false
+    isFuelingPollingRequestInFlight.value = false
+  }
+
+  // Запускает этап отпуска топлива и включает поллинг
+  async function startFuelingFlow(): Promise<Transaction | null> {
+    const currentId = transactionId.value
+    if (!currentId) {
+      lastError.value = { message: 'Transaction id is not set' }
+      return null
+    }
+
+    if (transaction.value?.status === 'fueling') {
+      startFuelingPolling()
+      return transaction.value
+    }
+    if (transaction.value?.status !== 'paid') {
+      lastError.value = { message: 'Fueling can only be started from paid status' }
+      return null
+    }
+
+    stopFuelingPolling()
+    isStartingFueling.value = true
+    clearError()
+
+    try {
+      const nextTransaction = await startFueling(currentId, fuelingConfig.value)
+      applyTransaction(nextTransaction)
+
+      if (nextTransaction.status === 'fueling') {
+        startFuelingPolling()
+      } else {
+        stopFuelingPolling()
+      }
+
+      return nextTransaction
+    } catch (error) {
+      setStoreError(error)
+      stopFuelingPolling()
+      return null
+    } finally {
+      isStartingFueling.value = false
+    }
+  }
+
   // Полностью сбрасывает сценарий транзакции
   function resetFlow(): void {
     stopPaymentPolling()
+    stopFuelingPolling()
     transaction.value = null
     transactionId.value = null
     selectionDraft.value = { ...DEFAULT_SELECTION_DRAFT }
+    fuelingConfig.value = { ...DEFAULT_FUELING_CONFIG }
     isSubmittingSelection.value = false
     isStartingPayment.value = false
+    isStartingFueling.value = false
     clearError()
   }
 
@@ -264,22 +398,32 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     selectionDraft,
     isSubmittingSelection,
     isStartingPayment,
+    isStartingFueling,
     isPollingPayment,
+    isPollingFueling,
     pollingTimerId,
+    fuelingPollingTimerId,
     lastError,
+    fuelingConfig,
     hasActiveTransaction,
     isPaymentPending,
     isPaid,
     isFailed,
     isSelectionDraftValid,
     canStartPayment,
+    canStartFueling,
     setSelectionDraft,
+    setFuelingConfig,
     submitSelection,
     refreshTransaction,
     startPaymentFlow,
+    startFuelingFlow,
     pollPaymentStatusOnce,
+    pollFuelingProgressOnce,
     startPaymentPolling,
+    startFuelingPolling,
     stopPaymentPolling,
+    stopFuelingPolling,
     resetFlow,
   }
 })
