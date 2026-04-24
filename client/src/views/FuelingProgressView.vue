@@ -22,7 +22,6 @@ interface FuelingUiState {
 
 const router = useRouter()
 const store = useTransactionFlowStore()
-const isRefreshing = ref(false)
 const isPreparingDemoTransaction = ref(false)
 
 const DEV_SELECTION_DRAFT = {
@@ -135,7 +134,6 @@ const uiState = computed<FuelingUiState>(() => {
   }
 })
 
-const canFinish = computed(() => transaction.value?.status === 'completed' || transaction.value?.status === 'failed')
 const canStartFuelingManually = computed(() => store.canStartFueling)
 const canCreateTransactionManually = computed(() => !isPreparingDemoTransaction.value)
 
@@ -176,19 +174,6 @@ async function handleManualTransactionCreate(): Promise<void> {
   }
 }
 
-async function handleRefresh(): Promise<void> {
-  if (isRefreshing.value || !store.transactionId) {
-    return
-  }
-
-  isRefreshing.value = true
-  try {
-    await store.pollFuelingProgressOnce()
-  } finally {
-    isRefreshing.value = false
-  }
-}
-
 async function handleManualFuelingStart(): Promise<void> {
   if (!canStartFuelingManually.value) {
     return
@@ -203,13 +188,6 @@ function goToFuelSelect(): void {
 
 function goToOrderParams(): void {
   void router.push('/select/order')
-}
-
-function finishFlow(): void {
-  if (!canFinish.value) {
-    return
-  }
-  void router.push('/payment/result')
 }
 
 onMounted(() => {
@@ -358,38 +336,6 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <div class="flex items-center gap-4">
-          <button
-            type="button"
-            :disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
-            :aria-disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
-                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            :class="
-              isRefreshing || !store.transactionId || store.isStartingFueling
-                ? 'bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed'
-                : 'bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95 shadow-md shadow-fuel-lime/20'
-            "
-            @click="handleRefresh"
-          >
-            {{ isRefreshing ? 'Обновление...' : 'Обновить' }}
-          </button>
-          <button
-            type="button"
-            :disabled="!canFinish"
-            :aria-disabled="!canFinish"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
-                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            :class="
-              canFinish
-                ? 'bg-fuel-olive text-white hover:bg-fuel-forest active:scale-95'
-                : 'bg-fuel-olive/25 text-fuel-olive/60 cursor-not-allowed'
-            "
-            @click="finishFlow"
-          >
-            Завершить
-          </button>
-        </div>
       </section>
 
       <section
@@ -428,13 +374,6 @@ onUnmounted(() => {
             @click="goToOrderParams"
           >
             К параметрам
-          </button>
-          <button
-            type="button"
-            class="font-rubik font-semibold text-lg px-8 py-3 rounded-xl bg-fuel-olive text-white hover:bg-fuel-forest transition-all duration-200"
-            @click="handleRefresh"
-          >
-            Обновить статус
           </button>
         </div>
       </section>
