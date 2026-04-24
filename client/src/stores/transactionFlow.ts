@@ -436,6 +436,18 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     clearError()
   }
 
+  // Сбрасывает текущую транзакцию для повторной оплаты, сохраняя выбор пользователя
+  function resetForPaymentRetry(): void {
+    stopPaymentPolling()
+    stopFuelingPolling()
+    transaction.value = null
+    transactionId.value = null
+    isSubmittingSelection.value = false
+    isStartingPayment.value = false
+    isStartingFueling.value = false
+    clearError()
+  }
+
   return {
     transaction,
     transactionId,
@@ -469,6 +481,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     startFuelingPolling,
     stopPaymentPolling,
     stopFuelingPolling,
+    resetForPaymentRetry,
     resetFlow,
   }
 })
