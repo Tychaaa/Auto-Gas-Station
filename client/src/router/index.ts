@@ -9,6 +9,7 @@ declare module 'vue-router' {
     requiresPaymentPending?: boolean
     requiresPaymentFinished?: boolean
     requiresFuelingDone?: boolean
+    requiresValidSelectionDraft?: boolean
   }
 }
 
@@ -16,6 +17,7 @@ declare module 'vue-router' {
 const FLOW_PATHS = {
   fuelSelect: '/select/fuel',
   orderSelect: '/select/order',
+  paymentMethod: '/payment/method',
   paymentPending: '/payment/pending',
   paymentResult: '/payment/result',
   fuelingProgress: '/fueling/progress',
@@ -37,6 +39,14 @@ const routes: RouteRecordRaw[] = [
     path: FLOW_PATHS.orderSelect,
     name: 'order-select',
     component: () => import('@/views/OrderParamsView.vue'),
+  },
+  {
+    path: FLOW_PATHS.paymentMethod,
+    name: 'payment-method',
+    component: () => import('@/views/PaymentMethodView.vue'),
+    meta: {
+      requiresValidSelectionDraft: true,
+    },
   },
   {
     path: FLOW_PATHS.paymentPending,
@@ -90,9 +100,16 @@ router.beforeEach((to) => {
     return { path: FLOW_PATHS.fuelSelect }
   }
 
+  if (to.meta.requiresValidSelectionDraft && !transactionFlowStore.isSelectionDraftValid) {
+    return { path: FLOW_PATHS.orderSelect }
+  }
+
   if (to.meta.requiresPaymentPending && transactionStatus !== 'payment_pending') {
     if (transactionStatus === 'paid' || transactionStatus === 'failed') {
       return { path: FLOW_PATHS.paymentResult }
+    }
+    if (transactionFlowStore.isSelectionDraftValid) {
+      return { path: FLOW_PATHS.paymentMethod }
     }
     return { path: FLOW_PATHS.orderSelect }
   }
@@ -100,6 +117,9 @@ router.beforeEach((to) => {
   if (to.meta.requiresPaymentFinished && transactionStatus !== 'paid' && transactionStatus !== 'failed') {
     if (transactionStatus === 'payment_pending') {
       return { path: FLOW_PATHS.paymentPending }
+    }
+    if (transactionFlowStore.isSelectionDraftValid) {
+      return { path: FLOW_PATHS.paymentMethod }
     }
     return { path: FLOW_PATHS.orderSelect }
   }

@@ -11,7 +11,8 @@ import {
   startPayment,
   updateSelection,
 } from '@/api'
-import type { FuelingStartRequest, SelectionPayload, Transaction } from '@/types'
+import type { FuelingStartRequest, OrderSummary, SelectionPayload, Transaction } from '@/types'
+import { fromPresetString } from '@/utils/presetSelection'
 
 // Ошибка для отображения в UI
 export interface TransactionFlowError {
@@ -96,6 +97,49 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
       !isPollingFueling.value &&
       !isFuelingPollingRequestInFlight.value
     )
+  })
+
+  const orderSummary = computed<OrderSummary>(() => {
+    const transactionFuelType = transaction.value?.fuelType.trim() ?? ''
+    const draftFuelType = selectionDraft.value.fuelType.trim()
+    const fuelType = transactionFuelType || draftFuelType || null
+
+    const transactionLiters = transaction.value?.liters ?? 0
+    const transactionPreset = fromPresetString(transaction.value?.preset ?? '')
+    const transactionPresetLiters = transactionPreset?.kind === 'liters' ? transactionPreset.value : null
+    const draftLiters = selectionDraft.value.liters
+    const draftPreset = fromPresetString(selectionDraft.value.preset)
+    const draftPresetLiters = draftPreset?.kind === 'liters' ? draftPreset.value : null
+    const liters =
+      transactionLiters > 0
+        ? transactionLiters
+        : transactionPresetLiters ?? (draftLiters > 0 ? draftLiters : draftPresetLiters)
+
+    const unitPriceMinor = transaction.value?.unitPriceMinor ?? 0
+    const unitPrice = unitPriceMinor > 0 ? unitPriceMinor / 100 : null
+
+    const computedAmountMinor = transaction.value?.computedAmountMinor ?? 0
+    let totalAmount: number | null = computedAmountMinor > 0 ? computedAmountMinor / 100 : null
+    if (totalAmount === null) {
+      if (selectionDraft.value.orderMode === 'amount' && selectionDraft.value.amountRub > 0) {
+        totalAmount = selectionDraft.value.amountRub
+      } else if (selectionDraft.value.orderMode === 'preset') {
+        totalAmount = draftPreset?.kind === 'amount' ? draftPreset.value : null
+      }
+    }
+
+    const calculatedLiters =
+      liters === null && unitPrice !== null && totalAmount !== null && unitPrice > 0
+        ? Number((totalAmount / unitPrice).toFixed(2))
+        : null
+
+    return {
+      fuelType,
+      liters: calculatedLiters ?? liters,
+      unitPrice,
+      totalAmount,
+      isComplete: fuelType !== null && (calculatedLiters ?? liters) !== null && unitPrice !== null && totalAmount !== null,
+    }
   })
 
   // Сбрасывает текущую ошибку
@@ -392,6 +436,18 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     clearError()
   }
 
+  // Сбрасывает текущую транзакцию для повторной оплаты, сохраняя выбор пользователя
+  function resetForPaymentRetry(): void {
+    stopPaymentPolling()
+    stopFuelingPolling()
+    transaction.value = null
+    transactionId.value = null
+    isSubmittingSelection.value = false
+    isStartingPayment.value = false
+    isStartingFueling.value = false
+    clearError()
+  }
+
   return {
     transaction,
     transactionId,
@@ -412,6 +468,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     isSelectionDraftValid,
     canStartPayment,
     canStartFueling,
+    orderSummary,
     setSelectionDraft,
     setFuelingConfig,
     submitSelection,
@@ -424,6 +481,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     startFuelingPolling,
     stopPaymentPolling,
     stopFuelingPolling,
+    resetForPaymentRetry,
     resetFlow,
   }
 })

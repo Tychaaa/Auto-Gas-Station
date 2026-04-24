@@ -32,7 +32,7 @@ const selectedMode = computed(() => store.selectionDraft.orderMode)
 const amountRub = computed(() => store.selectionDraft.amountRub)
 const liters = computed(() => store.selectionDraft.liters)
 const selectedPreset = computed(() => store.selectionDraft.preset)
-const canContinue = computed(() => store.isSelectionDraftValid && !store.isSubmittingSelection && !store.isStartingPayment)
+const canContinue = computed(() => store.isSelectionDraftValid)
 
 function onAmountInput(event: Event): void {
   const inputElement = event.target as HTMLInputElement
@@ -71,21 +71,7 @@ function selectPreset(presetId: string): void {
 
 async function handleContinue(): Promise<void> {
   if (!canContinue.value) return
-
-  const selectionTransaction = await store.submitSelection()
-  if (!selectionTransaction) return
-
-  const paymentTransaction = await store.startPaymentFlow()
-  if (!paymentTransaction) return
-
-  if (paymentTransaction.status === 'payment_pending') {
-    await router.push('/payment/pending')
-    return
-  }
-
-  if (paymentTransaction.status === 'paid' || paymentTransaction.status === 'failed') {
-    await router.push('/payment/result')
-  }
+  await router.push('/payment/method')
 }
 
 async function goBack(): Promise<void> {
@@ -286,11 +272,7 @@ async function goBack(): Promise<void> {
             @click="handleContinue"
           >
           {{
-            store.isSubmittingSelection
-              ? 'Сохраняем...'
-              : store.isStartingPayment
-                ? 'Запускаем оплату...'
-                : 'Перейти к оплате →'
+            'Перейти к оплате →'
           }}
           </button>
         </div>
