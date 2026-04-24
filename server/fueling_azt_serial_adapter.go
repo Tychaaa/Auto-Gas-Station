@@ -136,6 +136,9 @@ func (a *AZTSerialFuelingAdapter) newClient() (*AZTMasterClient, error) {
 }
 
 func calculatePriceMinor(input FuelingStartInput) (int64, error) {
+	if input.UnitPriceMinor > 0 {
+		return input.UnitPriceMinor, nil
+	}
 	if input.OrderMode == "amount" && input.Liters > 0 {
 		price := float64(input.AmountRub*100) / input.Liters
 		return int64(math.Round(price)), nil

@@ -105,7 +105,7 @@ const uiState = computed<FuelingUiState>(() => {
     }
   }
 
-  const targetLiters = tx.liters > 0 ? tx.liters : Math.max(tx.dispensedLiters, 0)
+  const targetLiters = tx.liters > 0 ? tx.liters : Math.max(store.orderSummary.liters ?? 0, 0)
   const fuelingStatus = tx.fuelingStatus
   const providerStatusLabel = formatProviderStatus(fuelingStatus)
   const progressByVolume =

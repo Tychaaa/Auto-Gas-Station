@@ -31,6 +31,7 @@ type FuelingStartInput struct {
 	OrderMode     string
 	AmountRub     int64
 	Liters        float64
+	UnitPriceMinor int64
 	Scenario      string
 }
 

@@ -69,6 +69,7 @@ func fuelingStartHandler(c *gin.Context) {
 		OrderMode:     tx.OrderMode,
 		AmountRub:     tx.AmountRub,
 		Liters:        tx.Liters,
+		UnitPriceMinor: tx.UnitPriceMinor,
 		Scenario:      req.Scenario,
 	})
 	if err != nil {
