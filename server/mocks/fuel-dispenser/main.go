@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/joho/godotenv"
+	"go.bug.st/serial"
 )
 
 const (
@@ -62,7 +63,7 @@ func main() {
 			Address:  envInt("MOCK_FUEL_ADDRESS", 1),
 		},
 		Scenario:     strings.ToLower(strings.TrimSpace(envString("MOCK_FUEL_SCENARIO", "normal"))),
-		StepLiters:   envFloat("MOCK_FUEL_STEP_LITERS", 0.25),
+		StepLiters:   envFloat("MOCK_FUEL_STEP_LITERS", 0.7),
 		DefaultPrice: int64(envInt("MOCK_FUEL_DEFAULT_PRICE_MINOR", 5500)),
 	}
 
@@ -134,6 +135,17 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 	data := payload[2:]
 	advanceProgress(state)
 
+	if shouldLogCommand(command) {
+		log.Printf(
+			"fuel emulator rx cmd=%q status=%c dose=%d current=%d tx=%d",
+			command,
+			state.statusCode,
+			state.doseLiters,
+			state.currentLiters,
+			state.transaction,
+		)
+	}
+
 	switch command {
 	case '1':
 		response := []byte{state.statusCode}
@@ -162,6 +174,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.doseLiters = amountMinor * 100 / state.priceMinor
 		state.currentLiters = 0
 		state.reasonCode = '0'
+		log.Printf("fuel emulator dose by amount liters=%d priceMinor=%d", state.doseLiters, state.priceMinor)
 		return encodeShortResponse(aztACK), nil
 	case 'T':
 		if state.statusCode != '0' && state.statusCode != '1' {
@@ -174,6 +187,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.doseLiters = liters
 		state.currentLiters = 0
 		state.reasonCode = '0'
+		log.Printf("fuel emulator dose by liters liters=%d", state.doseLiters)
 		return encodeShortResponse(aztACK), nil
 	case '2':
 		if state.statusCode != '0' && state.statusCode != '1' {
@@ -183,6 +197,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.reasonCode = '0'
 		state.currentLiters = 0
 		state.transaction++
+		log.Printf("fuel emulator start scenario=%s tx=%d status=%c", state.scenario, state.transaction, state.statusCode)
 		if state.scenario == "timeout" {
 			return nil, nil
 		}
@@ -192,6 +207,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		if err != nil {
 			return encodeShortResponse(aztCAN), nil
 		}
+		log.Printf("fuel emulator progress liters=%d status=%c", state.currentLiters, state.statusCode)
 		return encodeDataResponse(append([]byte{'0'}, response...)), nil
 	case '5':
 		if state.statusCode != '4' {
@@ -203,6 +219,13 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		priceDigits, _ := encodeDigits(state.priceMinor, 4)
 		payload := append(litersDigits, amountDigits...)
 		payload = append(payload, priceDigits...)
+		log.Printf(
+			"fuel emulator totals liters=%d amountMinor=%d priceMinor=%d reason=%c",
+			state.currentLiters,
+			amountMinor,
+			state.priceMinor,
+			state.reasonCode,
+		)
 		return encodeDataResponse(payload), nil
 	case '8':
 		if state.statusCode != '4' {
@@ -212,6 +235,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.reasonCode = '0'
 		state.currentLiters = 0
 		state.doseLiters = 0
+		log.Printf("fuel emulator confirm totals reset to idle")
 		return encodeShortResponse(aztACK), nil
 	case 'P':
 		return encodeDataResponse([]byte("00000002")), nil
@@ -223,6 +247,15 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		return encodeDataResponse(trDigits), nil
 	default:
 		return encodeShortResponse(aztNAK), nil
+	}
+}
+
+func shouldLogCommand(command byte) bool {
+	switch command {
+	case '1', '2', '4', '5', '8', 'S', 'T':
+		return true
+	default:
+		return false
 	}
 }
 
@@ -263,17 +296,64 @@ func loadEnv() {
 	log.Printf("fuel emulator: .env not found, using system environment")
 }
 
-func openSerial(cfg serialConfig) (*os.File, error) {
-	path := cfg.Port
-	if !strings.HasPrefix(path, `\\.\`) {
-		path = `\\.\` + strings.TrimSpace(path)
+func openSerial(cfg serialConfig) (serial.Port, error) {
+	mode, err := buildSerialMode(cfg)
+	if err != nil {
+		return nil, err
 	}
 
-	file, err := os.OpenFile(path, os.O_RDWR, 0)
+	port, err := serial.Open(cfg.Port, mode)
 	if err != nil {
 		return nil, fmt.Errorf("open serial %s: %w", cfg.Port, err)
 	}
-	return file, nil
+
+	_ = port.ResetInputBuffer()
+	_ = port.ResetOutputBuffer()
+	return port, nil
+}
+
+func buildSerialMode(cfg serialConfig) (*serial.Mode, error) {
+	mode := &serial.Mode{
+		BaudRate: cfg.Baud,
+	}
+	if mode.BaudRate <= 0 {
+		mode.BaudRate = 4800
+	}
+
+	switch cfg.DataBits {
+	case 0:
+		mode.DataBits = 8
+	case 5, 6, 7, 8:
+		mode.DataBits = cfg.DataBits
+	default:
+		return nil, fmt.Errorf("unsupported data bits: %d", cfg.DataBits)
+	}
+
+	switch cfg.StopBits {
+	case 0, 1:
+		mode.StopBits = serial.OneStopBit
+	case 2:
+		mode.StopBits = serial.TwoStopBits
+	default:
+		return nil, fmt.Errorf("unsupported stop bits: %d", cfg.StopBits)
+	}
+
+	switch strings.ToLower(strings.TrimSpace(cfg.Parity)) {
+	case "", "none", "n":
+		mode.Parity = serial.NoParity
+	case "even", "e":
+		mode.Parity = serial.EvenParity
+	case "odd", "o":
+		mode.Parity = serial.OddParity
+	case "mark", "m":
+		mode.Parity = serial.MarkParity
+	case "space", "s":
+		mode.Parity = serial.SpaceParity
+	default:
+		return nil, fmt.Errorf("unsupported parity: %q", cfg.Parity)
+	}
+
+	return mode, nil
 }
 
 func decodePayload(raw []byte) ([]byte, error) {
@@ -294,7 +374,7 @@ func decodePayload(raw []byte) ([]byte, error) {
 	data := make([]byte, 0, len(body)/2)
 	for i := 0; i < len(body); i += 2 {
 		value := body[i]
-		if body[i+1] != ^value {
+		if body[i+1] != aztComplement(value) {
 			return nil, fmt.Errorf("complement mismatch at %d", i/2)
 		}
 		data = append(data, value)
@@ -312,12 +392,17 @@ func encodeDataResponse(data []byte) []byte {
 	buf.WriteByte(aztSTX)
 	for _, b := range data {
 		buf.WriteByte(b)
-		buf.WriteByte(^b)
+		buf.WriteByte(aztComplement(b))
 	}
 	buf.WriteByte(aztETX)
 	buf.WriteByte(aztETX)
 	buf.WriteByte(calculateChecksum(data))
 	return buf.Bytes()
+}
+
+// aztComplement инвертирует младшие 7 бит байта согласно протоколу АЗТ 2.0.
+func aztComplement(b byte) byte {
+	return b ^ 0x7F
 }
 
 func encodeShortResponse(code byte) []byte {
