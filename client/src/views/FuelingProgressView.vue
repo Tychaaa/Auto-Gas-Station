@@ -41,6 +41,35 @@ const DEV_FUELING_CONFIG = {
 const transaction = computed(() => store.transaction)
 const errorMessage = computed(() => transaction.value?.fuelingError || store.lastError?.message || '')
 
+const FUELING_STATUS_LABELS: Record<string, string> = {
+  none: 'Нет данных',
+  starting: 'Подготовка к отпуску',
+  dispensing: 'Идет отпуск топлива',
+  completed_waiting_fiscal: 'Отпуск завершен, ожидаем чек',
+  failed: 'Ошибка отпуска топлива',
+}
+
+function formatProviderStatus(status: string): string {
+  const normalized = status.trim().toLowerCase()
+  if (!normalized) {
+    return 'Нет данных'
+  }
+  if (FUELING_STATUS_LABELS[normalized]) {
+    return FUELING_STATUS_LABELS[normalized]
+  }
+
+  // Фоллбек для новых/неожиданных статусов: "completed_waiting_fiscal" -> "Completed waiting fiscal".
+  const humanized = normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!humanized) {
+    return 'Нет данных'
+  }
+
+  return humanized.charAt(0).toUpperCase() + humanized.slice(1)
+}
+
 const screenMode = computed<ScreenMode>(() => {
   if (!transaction.value) {
     return 'no-transaction'
@@ -75,6 +104,7 @@ const uiState = computed<FuelingUiState>(() => {
 
   const targetLiters = tx.liters > 0 ? tx.liters : Math.max(tx.dispensedLiters, 0)
   const fuelingStatus = tx.fuelingStatus
+  const providerStatusLabel = formatProviderStatus(fuelingStatus)
   const progressByVolume =
     targetLiters > 0
       ? Math.min(100, Math.max(0, Math.round((tx.dispensedLiters / targetLiters) * 100)))
@@ -84,7 +114,7 @@ const uiState = computed<FuelingUiState>(() => {
     return {
       title: 'Не удалось завершить заправку',
       description: errorMessage.value || 'Произошла ошибка топливного контура. Обратитесь к оператору.',
-      providerStatus: fuelingStatus,
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: progressByVolume,
@@ -100,7 +130,7 @@ const uiState = computed<FuelingUiState>(() => {
         tx.status === 'completed'
           ? 'Операция полностью завершена. Спасибо за использование сервиса.'
           : 'Отпуск топлива завершен. Ожидаем подтверждение и формирование чека.',
-      providerStatus: fuelingStatus,
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: 100,
@@ -113,7 +143,7 @@ const uiState = computed<FuelingUiState>(() => {
     return {
       title: 'Подготовка к заправке',
       description: 'Колонка принимает команду. Пожалуйста, зафиксируйте пистолет в баке.',
-      providerStatus: fuelingStatus,
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: tx.dispensedLiters > 0 ? progressByVolume : 10,
@@ -124,8 +154,8 @@ const uiState = computed<FuelingUiState>(() => {
 
   return {
     title: 'Идет отпуск топлива',
-    description: 'Топливо подается. Следите за индикатором и обновляйте статус вручную.',
-    providerStatus: fuelingStatus,
+    description: 'Топливо подается. Следите за индикатором налива.',
+    providerStatus: providerStatusLabel,
     dispensedLiters: tx.dispensedLiters,
     targetLiters,
     progressPercent: progressByVolume,
