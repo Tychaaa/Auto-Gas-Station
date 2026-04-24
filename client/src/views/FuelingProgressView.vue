@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import StepIndicator from '@/components/StepIndicator.vue'
@@ -23,6 +23,9 @@ interface FuelingUiState {
 const router = useRouter()
 const store = useTransactionFlowStore()
 const isPreparingDemoTransaction = ref(false)
+const doneRedirectTimerId = ref<number | null>(null)
+const doneRedirectScheduled = ref(false)
+const FUELING_DONE_REDIRECT_DELAY_MS = 2000
 
 const DEV_SELECTION_DRAFT = {
   fuelType: 'АИ-95',
@@ -163,6 +166,13 @@ const uiState = computed<FuelingUiState>(() => {
 
 const canStartFuelingManually = computed(() => store.canStartFueling)
 const canCreateTransactionManually = computed(() => !isPreparingDemoTransaction.value)
+const shouldRedirectToDone = computed(() => {
+  const tx = transaction.value
+  if (!tx) {
+    return false
+  }
+  return tx.status === 'completed' || tx.status === 'fiscalizing' || tx.fuelingStatus === 'completed_waiting_fiscal'
+})
 
 // TODO(release): удалить временные служебные кнопки после завершения сквозного UI flow.
 async function handleManualTransactionCreate(): Promise<void> {
@@ -228,8 +238,27 @@ onMounted(() => {
   }
 })
 
+watch(
+  shouldRedirectToDone,
+  (isCompleted) => {
+    if (!isCompleted || doneRedirectScheduled.value) {
+      return
+    }
+
+    doneRedirectScheduled.value = true
+    doneRedirectTimerId.value = window.setTimeout(() => {
+      void router.replace('/fueling/done')
+    }, FUELING_DONE_REDIRECT_DELAY_MS)
+  },
+  { immediate: true },
+)
+
 onUnmounted(() => {
   store.stopFuelingPolling()
+  if (doneRedirectTimerId.value !== null) {
+    window.clearTimeout(doneRedirectTimerId.value)
+    doneRedirectTimerId.value = null
+  }
 })
 </script>
 
