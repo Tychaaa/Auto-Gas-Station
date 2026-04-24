@@ -28,7 +28,7 @@ const DEV_SELECTION_DRAFT = {
   fuelType: 'АИ-95',
   orderMode: 'liters',
   amountRub: 0,
-  liters: 30,
+  liters: 5,
   preset: '',
 } as const
 
@@ -45,7 +45,7 @@ const FUELING_STATUS_LABELS: Record<string, string> = {
   none: 'Нет данных',
   starting: 'Подготовка к отпуску',
   dispensing: 'Идет отпуск топлива',
-  completed_waiting_fiscal: 'Отпуск завершен, ожидаем чек',
+  completed_waiting_fiscal: 'Отпуск завершен',
   failed: 'Ошибка отпуска топлива',
 }
 
@@ -125,16 +125,13 @@ const uiState = computed<FuelingUiState>(() => {
 
   if (tx.status === 'completed' || tx.status === 'fiscalizing' || fuelingStatus === 'completed_waiting_fiscal') {
     return {
-      title: tx.status === 'completed' ? 'Чек сформирован' : 'Заправка завершена',
-      description:
-        tx.status === 'completed'
-          ? 'Операция полностью завершена. Спасибо за использование сервиса.'
-          : 'Отпуск топлива завершен. Ожидаем подтверждение и формирование чека.',
+      title: 'Заправка завершена',
+      description: 'Операция полностью завершена. Спасибо за использование сервиса.',
       providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: 100,
-      badgeLabel: tx.status === 'completed' ? 'Завершено' : 'Ожидание чека',
+      badgeLabel: 'Завершено',
       badgeClass: 'bg-fuel-lime text-white border border-fuel-lime',
     }
   }
