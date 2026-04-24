@@ -8,6 +8,7 @@ declare module 'vue-router' {
     requiresTransaction?: boolean
     requiresPaymentPending?: boolean
     requiresPaymentFinished?: boolean
+    requiresFuelingDone?: boolean
     requiresValidSelectionDraft?: boolean
   }
 }
@@ -20,6 +21,7 @@ const FLOW_PATHS = {
   paymentPending: '/payment/pending',
   paymentResult: '/payment/result',
   fuelingProgress: '/fueling/progress',
+  fuelingDone: '/fueling/done',
 } as const
 
 // Маршруты приложения для сценария заправки
@@ -70,6 +72,15 @@ const routes: RouteRecordRaw[] = [
     component: () => import('@/views/FuelingProgressView.vue'),
   },
   {
+    path: FLOW_PATHS.fuelingDone,
+    name: 'fueling-done',
+    component: () => import('@/views/FuelingDoneView.vue'),
+    meta: {
+      requiresTransaction: true,
+      requiresFuelingDone: true,
+    },
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: FLOW_PATHS.fuelSelect,
   },
@@ -111,6 +122,23 @@ router.beforeEach((to) => {
       return { path: FLOW_PATHS.paymentMethod }
     }
     return { path: FLOW_PATHS.orderSelect }
+  }
+
+  if (to.meta.requiresFuelingDone && transactionStatus !== 'completed') {
+    const fuelingStatus = transactionFlowStore.transaction?.fuelingStatus
+    const isFuelingDoneState =
+      transactionStatus === 'completed' ||
+      transactionStatus === 'fiscalizing' ||
+      fuelingStatus === 'completed_waiting_fiscal'
+
+    if (isFuelingDoneState) {
+      return true
+    }
+
+    if (transactionStatus === 'fueling') {
+      return { path: FLOW_PATHS.fuelingProgress }
+    }
+    return { path: FLOW_PATHS.fuelSelect }
   }
 
   return true

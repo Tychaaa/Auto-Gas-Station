@@ -360,7 +360,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
   }
 
   // Запускает периодический опрос прогресса заправки
-  function startFuelingPolling(intervalMs = 2000): void {
+  function startFuelingPolling(intervalMs = 500): void {
     if (isPollingFueling.value || fuelingPollingTimerId.value !== null) {
       return
     }

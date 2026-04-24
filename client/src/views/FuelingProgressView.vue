@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 
 import StepIndicator from '@/components/StepIndicator.vue'
@@ -22,10 +22,56 @@ interface FuelingUiState {
 
 const router = useRouter()
 const store = useTransactionFlowStore()
-const isRefreshing = ref(false)
+const isPreparingDemoTransaction = ref(false)
+const doneRedirectTimerId = ref<number | null>(null)
+const doneRedirectScheduled = ref(false)
+const FUELING_DONE_REDIRECT_DELAY_MS = 2000
+
+const DEV_SELECTION_DRAFT = {
+  fuelType: 'АИ-95',
+  orderMode: 'liters',
+  amountRub: 0,
+  liters: 5,
+  preset: '',
+} as const
+
+const DEV_FUELING_CONFIG = {
+  pumpId: '1',
+  nozzleId: '1',
+  scenario: '',
+} as const
 
 const transaction = computed(() => store.transaction)
 const errorMessage = computed(() => transaction.value?.fuelingError || store.lastError?.message || '')
+
+const FUELING_STATUS_LABELS: Record<string, string> = {
+  none: 'Нет данных',
+  starting: 'Подготовка к отпуску',
+  dispensing: 'Идет отпуск топлива',
+  completed_waiting_fiscal: 'Отпуск завершен',
+  failed: 'Ошибка отпуска топлива',
+}
+
+function formatProviderStatus(status: string): string {
+  const normalized = status.trim().toLowerCase()
+  if (!normalized) {
+    return 'Нет данных'
+  }
+  if (FUELING_STATUS_LABELS[normalized]) {
+    return FUELING_STATUS_LABELS[normalized]
+  }
+
+  // Фоллбек для новых/неожиданных статусов: "completed_waiting_fiscal" -> "Completed waiting fiscal".
+  const humanized = normalized
+    .replace(/[_-]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+  if (!humanized) {
+    return 'Нет данных'
+  }
+
+  return humanized.charAt(0).toUpperCase() + humanized.slice(1)
+}
 
 const screenMode = computed<ScreenMode>(() => {
   if (!transaction.value) {
@@ -61,6 +107,7 @@ const uiState = computed<FuelingUiState>(() => {
 
   const targetLiters = tx.liters > 0 ? tx.liters : Math.max(tx.dispensedLiters, 0)
   const fuelingStatus = tx.fuelingStatus
+  const providerStatusLabel = formatProviderStatus(fuelingStatus)
   const progressByVolume =
     targetLiters > 0
       ? Math.min(100, Math.max(0, Math.round((tx.dispensedLiters / targetLiters) * 100)))
@@ -70,7 +117,7 @@ const uiState = computed<FuelingUiState>(() => {
     return {
       title: 'Не удалось завершить заправку',
       description: errorMessage.value || 'Произошла ошибка топливного контура. Обратитесь к оператору.',
-      providerStatus: fuelingStatus,
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: progressByVolume,
@@ -81,16 +128,13 @@ const uiState = computed<FuelingUiState>(() => {
 
   if (tx.status === 'completed' || tx.status === 'fiscalizing' || fuelingStatus === 'completed_waiting_fiscal') {
     return {
-      title: tx.status === 'completed' ? 'Чек сформирован' : 'Заправка завершена',
-      description:
-        tx.status === 'completed'
-          ? 'Операция полностью завершена. Спасибо за использование сервиса.'
-          : 'Отпуск топлива завершен. Ожидаем подтверждение и формирование чека.',
-      providerStatus: fuelingStatus,
+      title: 'Заправка завершена',
+      description: 'Операция полностью завершена. Спасибо за использование сервиса.',
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: 100,
-      badgeLabel: tx.status === 'completed' ? 'Завершено' : 'Ожидание чека',
+      badgeLabel: 'Завершено',
       badgeClass: 'bg-fuel-lime text-white border border-fuel-lime',
     }
   }
@@ -99,7 +143,7 @@ const uiState = computed<FuelingUiState>(() => {
     return {
       title: 'Подготовка к заправке',
       description: 'Колонка принимает команду. Пожалуйста, зафиксируйте пистолет в баке.',
-      providerStatus: fuelingStatus,
+      providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
       targetLiters,
       progressPercent: tx.dispensedLiters > 0 ? progressByVolume : 10,
@@ -110,8 +154,8 @@ const uiState = computed<FuelingUiState>(() => {
 
   return {
     title: 'Идет отпуск топлива',
-    description: 'Топливо подается. Следите за индикатором и обновляйте статус вручную.',
-    providerStatus: fuelingStatus,
+    description: 'Топливо подается. Следите за индикатором налива.',
+    providerStatus: providerStatusLabel,
     dispensedLiters: tx.dispensedLiters,
     targetLiters,
     progressPercent: progressByVolume,
@@ -120,19 +164,59 @@ const uiState = computed<FuelingUiState>(() => {
   }
 })
 
-const canFinish = computed(() => transaction.value?.status === 'completed' || transaction.value?.status === 'failed')
+const canStartFuelingManually = computed(() => store.canStartFueling)
+const canCreateTransactionManually = computed(() => !isPreparingDemoTransaction.value)
+const shouldRedirectToDone = computed(() => {
+  const tx = transaction.value
+  if (!tx) {
+    return false
+  }
+  return tx.status === 'completed' || tx.status === 'fiscalizing' || tx.fuelingStatus === 'completed_waiting_fiscal'
+})
 
-async function handleRefresh(): Promise<void> {
-  if (isRefreshing.value || !store.transactionId) {
+// TODO(release): удалить временные служебные кнопки после завершения сквозного UI flow.
+async function handleManualTransactionCreate(): Promise<void> {
+  if (!canCreateTransactionManually.value) {
     return
   }
 
-  isRefreshing.value = true
+  isPreparingDemoTransaction.value = true
+
   try {
-    await store.pollFuelingProgressOnce()
+    store.resetFlow()
+    store.setSelectionDraft(DEV_SELECTION_DRAFT)
+    store.setFuelingConfig(DEV_FUELING_CONFIG)
+
+    const createdTransaction = await store.submitSelection()
+    if (!createdTransaction) {
+      return
+    }
+
+    let paymentTransaction = await store.startPaymentFlow()
+    if (!paymentTransaction) {
+      return
+    }
+
+    // Временный dev-helper: дожидаемся автофинализации mock-платежа,
+    // чтобы экран можно было тестировать без ручного заполнения Pinia.
+    for (let attempt = 0; attempt < 10 && paymentTransaction.status === 'payment_pending'; attempt += 1) {
+      await new Promise((resolve) => window.setTimeout(resolve, 500))
+      paymentTransaction = await store.pollPaymentStatusOnce()
+      if (!paymentTransaction) {
+        return
+      }
+    }
   } finally {
-    isRefreshing.value = false
+    isPreparingDemoTransaction.value = false
   }
+}
+
+async function handleManualFuelingStart(): Promise<void> {
+  if (!canStartFuelingManually.value) {
+    return
+  }
+
+  await store.startFuelingFlow()
 }
 
 function goToFuelSelect(): void {
@@ -141,13 +225,6 @@ function goToFuelSelect(): void {
 
 function goToOrderParams(): void {
   void router.push('/select/order')
-}
-
-function finishFlow(): void {
-  if (!canFinish.value) {
-    return
-  }
-  void router.push('/payment/result')
 }
 
 onMounted(() => {
@@ -161,13 +238,67 @@ onMounted(() => {
   }
 })
 
+watch(
+  shouldRedirectToDone,
+  (isCompleted) => {
+    if (!isCompleted || doneRedirectScheduled.value) {
+      return
+    }
+
+    doneRedirectScheduled.value = true
+    doneRedirectTimerId.value = window.setTimeout(() => {
+      void router.replace('/fueling/done')
+    }, FUELING_DONE_REDIRECT_DELAY_MS)
+  },
+  { immediate: true },
+)
+
 onUnmounted(() => {
   store.stopFuelingPolling()
+  if (doneRedirectTimerId.value !== null) {
+    window.clearTimeout(doneRedirectTimerId.value)
+    doneRedirectTimerId.value = null
+  }
 })
 </script>
 
 <template>
   <div class="min-h-screen flex flex-col bg-fuel-cream">
+    <!-- TODO(release): удалить временные служебные кнопки для ручного dev-тестирования. -->
+    <div class="fixed top-4 left-4 z-20 flex items-center gap-2">
+      <button
+        type="button"
+        :disabled="!canCreateTransactionManually"
+        :aria-disabled="!canCreateTransactionManually"
+        class="font-rubik font-semibold text-sm px-4 py-2 rounded-lg border transition-all duration-200
+              focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
+        :class="
+          canCreateTransactionManually
+            ? 'bg-white text-fuel-forest border-fuel-olive/30 hover:bg-fuel-cream hover:border-fuel-lime shadow-sm'
+            : 'bg-white/80 text-fuel-olive/60 border-fuel-olive/20 cursor-not-allowed'
+        "
+        @click="handleManualTransactionCreate"
+      >
+        {{ isPreparingDemoTransaction ? 'Служебно: готовим...' : 'Служебно: создать транзакцию' }}
+      </button>
+
+      <button
+        type="button"
+        :disabled="!canStartFuelingManually"
+        :aria-disabled="!canStartFuelingManually"
+        class="font-rubik font-semibold text-sm px-4 py-2 rounded-lg border transition-all duration-200
+              focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-fuel-cream"
+        :class="
+          canStartFuelingManually
+            ? 'bg-fuel-lime text-white border-fuel-lime hover:bg-fuel-forest hover:border-fuel-forest shadow-md shadow-fuel-lime/20'
+            : 'bg-white/80 text-fuel-olive/60 border-fuel-olive/20 cursor-not-allowed'
+        "
+        @click="handleManualFuelingStart"
+      >
+        Служебно: начать налив
+      </button>
+    </div>
+
     <header class="bg-fuel-forest border-b border-fuel-olive/35 py-5 px-10 text-center shrink-0 shadow-sm">
       <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
         Автоматизированная АЗС
@@ -261,38 +392,6 @@ onUnmounted(() => {
           </p>
         </div>
 
-        <div class="flex items-center gap-4">
-          <button
-            type="button"
-            :disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
-            :aria-disabled="isRefreshing || !store.transactionId || store.isStartingFueling"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
-                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            :class="
-              isRefreshing || !store.transactionId || store.isStartingFueling
-                ? 'bg-fuel-lime/35 text-fuel-olive/60 cursor-not-allowed'
-                : 'bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95 shadow-md shadow-fuel-lime/20'
-            "
-            @click="handleRefresh"
-          >
-            {{ isRefreshing ? 'Обновление...' : 'Обновить' }}
-          </button>
-          <button
-            type="button"
-            :disabled="!canFinish"
-            :aria-disabled="!canFinish"
-            class="font-rubik font-semibold text-lg px-10 py-3 rounded-xl transition-all duration-200
-                  focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime focus-visible:ring-offset-2 focus-visible:ring-offset-white"
-            :class="
-              canFinish
-                ? 'bg-fuel-olive text-white hover:bg-fuel-forest active:scale-95'
-                : 'bg-fuel-olive/25 text-fuel-olive/60 cursor-not-allowed'
-            "
-            @click="finishFlow"
-          >
-            Завершить
-          </button>
-        </div>
       </section>
 
       <section
@@ -331,13 +430,6 @@ onUnmounted(() => {
             @click="goToOrderParams"
           >
             К параметрам
-          </button>
-          <button
-            type="button"
-            class="font-rubik font-semibold text-lg px-8 py-3 rounded-xl bg-fuel-olive text-white hover:bg-fuel-forest transition-all duration-200"
-            @click="handleRefresh"
-          >
-            Обновить статус
           </button>
         </div>
       </section>

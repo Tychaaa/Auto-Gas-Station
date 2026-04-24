@@ -74,7 +74,7 @@ func DecodeAZTPayload(raw []byte) ([]byte, error) {
 	data := make([]byte, 0, len(body)/2)
 	for i := 0; i < len(body); i += 2 {
 		value := body[i]
-		if body[i+1] != ^value {
+		if body[i+1] != aztComplement(value) {
 			return nil, fmt.Errorf("azt complement mismatch at position %d", i/2)
 		}
 		data = append(data, value)
@@ -107,7 +107,7 @@ func EncodeAZTRequest(req AZTRequest) ([]byte, error) {
 	buf.WriteByte(req.StartByte)
 	for _, b := range payload {
 		buf.WriteByte(b)
-		buf.WriteByte(^b)
+		buf.WriteByte(aztComplement(b))
 	}
 	buf.WriteByte(aztETX)
 	buf.WriteByte(aztETX)
@@ -121,7 +121,7 @@ func EncodeAZTDataResponse(data []byte) []byte {
 	buf.WriteByte(aztSTX)
 	for _, b := range data {
 		buf.WriteByte(b)
-		buf.WriteByte(^b)
+		buf.WriteByte(aztComplement(b))
 	}
 	buf.WriteByte(aztETX)
 	buf.WriteByte(aztETX)
@@ -160,6 +160,12 @@ func calculateAZTChecksum(data []byte) byte {
 	checksum ^= aztETX
 	checksum |= 0x40
 	return checksum
+}
+
+// aztComplement возвращает 7-битный комплиментарный байт по протоколу АЗТ 2.0:
+// инвертируются только биты 0..6, бит 7 всегда равен 0. См. разд. 4 спецификации.
+func aztComplement(b byte) byte {
+	return b ^ 0x7F
 }
 
 func encodeDigits(value int64, width int) ([]byte, error) {
