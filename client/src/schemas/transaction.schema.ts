@@ -15,7 +15,6 @@ export const selectionPayloadSchema = z.object({
   orderMode: orderModeSchema,
   amountRub: z.number(),
   liters: z.number(),
-  preset: z.string(),
 })
 
 // Полная схема транзакции из API
@@ -25,7 +24,6 @@ export const transactionSchema = z.object({
   orderMode: orderModeSchema,
   amountRub: z.number(),
   liters: z.number(),
-  preset: z.string(),
   priceVersionId: z.number().int(),
   priceVersionTag: z.string(),
   unitPriceMinor: z.number().int(),

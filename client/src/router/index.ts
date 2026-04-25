@@ -124,7 +124,7 @@ router.beforeEach((to) => {
     return { path: FLOW_PATHS.orderSelect }
   }
 
-  if (to.meta.requiresFuelingDone && transactionStatus !== 'completed') {
+  if (to.meta.requiresFuelingDone) {
     const fuelingStatus = transactionFlowStore.transaction?.fuelingStatus
     const isFuelingDoneState =
       transactionStatus === 'completed' ||

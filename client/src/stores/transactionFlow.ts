@@ -12,7 +12,6 @@ import {
   updateSelection,
 } from '@/api'
 import type { FuelingStartRequest, OrderSummary, SelectionPayload, Transaction } from '@/types'
-import { fromPresetString } from '@/utils/presetSelection'
 
 // Ошибка для отображения в UI
 export interface TransactionFlowError {
@@ -27,7 +26,6 @@ const DEFAULT_SELECTION_DRAFT: SelectionPayload = {
   orderMode: 'amount',
   amountRub: 0,
   liters: 0,
-  preset: '',
 }
 
 type FuelingConfig = Required<FuelingStartRequest>
@@ -71,9 +69,8 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     const hasFuelType = draft.fuelType.trim().length > 0
 
     const modeMatchesValue =
-      (draft.orderMode === 'amount' && draft.amountRub > 0 && draft.liters === 0 && draft.preset === '') ||
-      (draft.orderMode === 'liters' && draft.liters > 0 && draft.amountRub === 0 && draft.preset === '') ||
-      (draft.orderMode === 'preset' && draft.preset.trim().length > 0 && draft.amountRub === 0 && draft.liters === 0)
+      (draft.orderMode === 'amount' && draft.amountRub > 0 && draft.liters === 0) ||
+      (draft.orderMode === 'liters' && draft.liters > 0 && draft.amountRub === 0)
 
     return hasFuelType && modeMatchesValue
   })
@@ -105,15 +102,8 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     const fuelType = transactionFuelType || draftFuelType || null
 
     const transactionLiters = transaction.value?.liters ?? 0
-    const transactionPreset = fromPresetString(transaction.value?.preset ?? '')
-    const transactionPresetLiters = transactionPreset?.kind === 'liters' ? transactionPreset.value : null
     const draftLiters = selectionDraft.value.liters
-    const draftPreset = fromPresetString(selectionDraft.value.preset)
-    const draftPresetLiters = draftPreset?.kind === 'liters' ? draftPreset.value : null
-    const liters =
-      transactionLiters > 0
-        ? transactionLiters
-        : transactionPresetLiters ?? (draftLiters > 0 ? draftLiters : draftPresetLiters)
+    const liters = transactionLiters > 0 ? transactionLiters : draftLiters > 0 ? draftLiters : null
 
     const unitPriceMinor = transaction.value?.unitPriceMinor ?? 0
     const unitPrice = unitPriceMinor > 0 ? unitPriceMinor / 100 : null
@@ -123,8 +113,6 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     if (totalAmount === null) {
       if (selectionDraft.value.orderMode === 'amount' && selectionDraft.value.amountRub > 0) {
         totalAmount = selectionDraft.value.amountRub
-      } else if (selectionDraft.value.orderMode === 'preset') {
-        totalAmount = draftPreset?.kind === 'amount' ? draftPreset.value : null
       }
     }
 
@@ -173,7 +161,6 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
       orderMode: nextTransaction.orderMode,
       amountRub: nextTransaction.amountRub,
       liters: nextTransaction.liters,
-      preset: nextTransaction.preset,
     }
   }
 

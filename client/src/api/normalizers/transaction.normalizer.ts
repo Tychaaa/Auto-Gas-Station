@@ -7,7 +7,6 @@ interface BackendTransaction {
   OrderMode: string
   AmountRub: number
   Liters: number
-  Preset: string
   PriceVersionID: number
   PriceVersionTag: string
   UnitPriceMinor: number
@@ -58,7 +57,6 @@ export function normalizeTransactionResponse(payload: unknown): Omit<Transaction
     orderMode: raw.OrderMode,
     amountRub: raw.AmountRub,
     liters: raw.Liters,
-    preset: raw.Preset,
     priceVersionId: raw.PriceVersionID,
     priceVersionTag: raw.PriceVersionTag,
     unitPriceMinor: raw.UnitPriceMinor,
