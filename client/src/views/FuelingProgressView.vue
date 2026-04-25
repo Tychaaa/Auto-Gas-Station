@@ -25,7 +25,7 @@ const store = useTransactionFlowStore()
 const isPreparingDemoTransaction = ref(false)
 const doneRedirectTimerId = ref<number | null>(null)
 const doneRedirectScheduled = ref(false)
-const FUELING_DONE_REDIRECT_DELAY_MS = 2000
+const FUELING_DONE_REDIRECT_DELAY_MS = 5000
 
 const DEV_SELECTION_DRAFT = {
   fuelType: 'АИ-95',
@@ -353,7 +353,7 @@ onUnmounted(() => {
               Отпущено
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ uiState.dispensedLiters.toFixed(1) }} л
+              {{ uiState.dispensedLiters.toFixed(2) }} л
             </p>
           </article>
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
@@ -361,7 +361,7 @@ onUnmounted(() => {
               План
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ uiState.targetLiters.toFixed(1) }} л
+              {{ uiState.targetLiters.toFixed(2) }} л
             </p>
           </article>
         </div>
