@@ -47,8 +47,8 @@ onUnmounted(() => {
       :current="4"
     />
 
-    <main class="flex-1 px-8 py-10 flex items-center justify-center">
-      <section class="w-full max-w-2xl rounded-2xl bg-white p-8 shadow-sm border border-fuel-olive/20 text-center">
+    <main class="flex-1 px-8 py-10">
+      <section class="w-full max-w-2xl mx-auto rounded-2xl bg-white p-8 shadow-sm border border-fuel-olive/20 text-center">
         <h2 class="font-rubik font-bold text-3xl text-fuel-forest mb-4">
           Заправка завершена
         </h2>
