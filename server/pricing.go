@@ -37,9 +37,39 @@ type FuelPriceView struct {
 	EffectiveFrom  string  `json:"effectiveFrom"`
 }
 
+// PriceVersion описывает строку таблицы price_versions с вложенным списком цен
+type PriceVersion struct {
+	ID            int64               `json:"id"`
+	VersionTag    string              `json:"versionTag"`
+	EffectiveFrom time.Time           `json:"effectiveFrom"`
+	CreatedAt     time.Time           `json:"createdAt"`
+	Items         []PriceVersionItem  `json:"items"`
+}
+
+// PriceVersionItem цена одного топлива в конкретной версии
+type PriceVersionItem struct {
+	FuelType      string  `json:"fuelType"`
+	DisplayName   string  `json:"displayName"`
+	Grade         string  `json:"grade"`
+	PricePerLiter float64 `json:"pricePerLiter"`
+	Currency      string  `json:"currency"`
+}
+
+// defaultFuelCatalog используется и для первичного seed, и для заполнения
+// displayName/grade при создании новой версии цен админом
+// Таким образом admin UI просит ввести только цены, остальные поля берем отсюда
+var defaultFuelCatalog = []seededFuelPrice{
+	{FuelType: "АИ-92", DisplayName: "АИ-92", Grade: "Регулярный", PriceMinor: 6153},
+	{FuelType: "АИ-95", DisplayName: "АИ-95", Grade: "Улучшенный", PriceMinor: 6514},
+	{FuelType: "АИ-100", DisplayName: "АИ-100", Grade: "Премиум", PriceMinor: 8780},
+	{FuelType: "ДТ", DisplayName: "ДТ", Grade: "Дизель", PriceMinor: 7861},
+}
+
 type PriceRepository interface {
 	GetCurrentPrice(now time.Time, fuelType string) (FuelPriceSnapshot, error)
 	ListCurrentPrices(now time.Time) ([]FuelPriceSnapshot, error)
+	ListVersions(limit int) ([]PriceVersion, error)
+	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []seededFuelPrice) (PriceVersion, error)
 }
 
 type PriceService struct {
@@ -60,6 +90,44 @@ func (s *PriceService) GetCurrentPrice(fuelType string) (FuelPriceSnapshot, erro
 		return FuelPriceSnapshot{}, err
 	}
 	return price, nil
+}
+
+// ListVersions отдает историю версий цен от самой свежей к старой
+// limit<=0 означает без ограничения
+func (s *PriceService) ListVersions(limit int) ([]PriceVersion, error) {
+	return s.repo.ListVersions(limit)
+}
+
+// CreatePriceVersion создает новую версию цен из payload админа
+// Admin передает только fuelType + pricePerLiter, displayName/grade берем из defaultFuelCatalog
+func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (PriceVersion, error) {
+	versionTag = strings.TrimSpace(versionTag)
+	if versionTag == "" {
+		versionTag = fmt.Sprintf("v-%s", time.Now().UTC().Format("20060102-150405"))
+	}
+	if effectiveFrom.IsZero() {
+		return PriceVersion{}, errors.New("effectiveFrom is required")
+	}
+
+	items := make([]seededFuelPrice, 0, len(defaultFuelCatalog))
+	for _, catalog := range defaultFuelCatalog {
+		priceRub, ok := pricesPerLiter[catalog.FuelType]
+		if !ok {
+			return PriceVersion{}, fmt.Errorf("price for fuel type %q is required", catalog.FuelType)
+		}
+		if priceRub <= 0 {
+			return PriceVersion{}, fmt.Errorf("price for fuel type %q must be > 0", catalog.FuelType)
+		}
+		priceMinor := int64(math.Round(priceRub * 100))
+		items = append(items, seededFuelPrice{
+			FuelType:    catalog.FuelType,
+			DisplayName: catalog.DisplayName,
+			Grade:       catalog.Grade,
+			PriceMinor:  priceMinor,
+		})
+	}
+
+	return s.repo.CreatePriceVersion(versionTag, effectiveFrom.UTC(), items)
 }
 
 func (s *PriceService) ListCurrentPrices() ([]FuelPriceView, error) {
