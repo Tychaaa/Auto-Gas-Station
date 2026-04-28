@@ -1,3 +1,5 @@
 export * from './http'
 export * from './transaction.api'
+export * from './kiosk.api'
+export * from './admin.api'
 export * from './normalizers/transaction.normalizer'
