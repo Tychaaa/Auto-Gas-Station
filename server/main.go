@@ -23,8 +23,11 @@ func main() {
 	if err := initPricingFromEnv(); err != nil {
 		log.Fatalf("pricing init failed: %v", err)
 	}
+	if err := initAdminFromEnv(); err != nil {
+		log.Fatalf("admin auth init failed: %v", err)
+	}
 	initPaymentAdapterFromEnv()
-	
+
 	if err := initFuelingAdapterFromEnv(); err != nil {
 		log.Fatalf("fueling adapter init failed: %v", err)
 	}
@@ -39,14 +42,17 @@ func main() {
 
 	registerPaymentRoutes(router)
 	registerFuelAndTerminalRoutes(router)
+	registerKioskRoutes(router)
+	registerAdminRoutes(router)
 
 	port := os.Getenv("PORT")
 	if port == "" {
 		port = "8080"
 	}
+	addr := "127.0.0.1:" + port
 
 	server := &http.Server{
-		Addr:              ":" + port,
+		Addr:              addr,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       10 * time.Second,
@@ -54,7 +60,7 @@ func main() {
 		IdleTimeout:       30 * time.Second,
 	}
 
-	log.Printf("server started on :%s", port)
+	log.Printf("server started on %s", addr)
 
 	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server failed: %v", err)

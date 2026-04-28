@@ -31,6 +31,23 @@ func registerPaymentRoutes(r *gin.Engine) {
 	}
 }
 
+// registerKioskRoutes публичные ручки, которые пуллит киоск-браузер
+func registerKioskRoutes(r *gin.Engine) {
+	v1 := r.Group("/api/v1")
+	v1.GET("/kiosk/state", getKioskStateHandler)
+}
+
+// registerAdminRoutes защищенные Basic Auth админские ручки
+// Остальные endpoints (цены, транзакции) добавятся в admin_handlers.go
+func registerAdminRoutes(r *gin.Engine) {
+	admin := r.Group("/api/v1/admin", adminAuth())
+
+	admin.POST("/maintenance", setMaintenanceHandler)
+	admin.GET("/prices/versions", adminListPriceVersionsHandler)
+	admin.POST("/prices/versions", adminCreatePriceVersionHandler)
+	admin.GET("/transactions", adminListTransactionsHandler)
+}
+
 func registerFuelAndTerminalRoutes(r *gin.Engine) {
 	// Базовая группа API версии v1
 	v1 := r.Group("/api/v1")

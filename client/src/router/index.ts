@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
+import { ensureAdminSession } from '@/api/admin.api'
 import { useTransactionFlowStore } from '@/stores'
 
 // Дополнительные флаги доступа для маршрутов
@@ -10,6 +11,7 @@ declare module 'vue-router' {
     requiresPaymentFinished?: boolean
     requiresFuelingDone?: boolean
     requiresValidSelectionDraft?: boolean
+    isAdmin?: boolean
   }
 }
 
@@ -81,6 +83,30 @@ const routes: RouteRecordRaw[] = [
     },
   },
   {
+    path: '/admin',
+    component: () => import('@/views/admin/AdminLayout.vue'),
+    meta: {
+      isAdmin: true,
+    },
+    children: [
+      {
+        path: '',
+        name: 'admin-dashboard',
+        component: () => import('@/views/admin/AdminDashboardView.vue'),
+      },
+      {
+        path: 'prices',
+        name: 'admin-prices',
+        component: () => import('@/views/admin/AdminPricesView.vue'),
+      },
+      {
+        path: 'transactions',
+        name: 'admin-transactions',
+        component: () => import('@/views/admin/AdminTransactionsView.vue'),
+      },
+    ],
+  },
+  {
     path: '/:pathMatch(.*)*',
     redirect: FLOW_PATHS.fuelSelect,
   },
@@ -92,7 +118,17 @@ const router = createRouter({
 })
 
 // Защищает шаги сценария от перехода в неверном состоянии
-router.beforeEach((to) => {
+router.beforeEach(async (to) => {
+  if (to.meta.isAdmin) {
+    const hasAdminAccess = await ensureAdminSession()
+    if (!hasAdminAccess) {
+      // Не перекидываем пользователя на киоск: остаемся на текущем экране.
+      // При следующей попытке зайти в /admin снова будет запрос логина/пароля.
+      return false
+    }
+    return true
+  }
+
   const transactionFlowStore = useTransactionFlowStore()
   const transactionStatus = transactionFlowStore.transaction?.status
 
