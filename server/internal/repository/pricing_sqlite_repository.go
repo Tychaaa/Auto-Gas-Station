@@ -7,9 +7,10 @@ import (
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/model"
-	"AUTO-GAS-STATION/server/internal/service"
 	_ "modernc.org/sqlite"
 )
+
+const defaultPricingCurrency = "RUB"
 
 type SQLitePriceRepository struct {
 	db *sql.DB
@@ -130,7 +131,7 @@ func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveF
 			item.DisplayName,
 			item.Grade,
 			item.PriceMinor,
-			service.DefaultPricingCurrency,
+			defaultPricingCurrency,
 			now,
 		); err != nil {
 			return model.PriceVersion{}, fmt.Errorf("insert fuel price for %s: %w", item.FuelType, err)
@@ -140,7 +141,7 @@ func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveF
 			DisplayName:   item.DisplayName,
 			Grade:         item.Grade,
 			PricePerLiter: float64(item.PriceMinor) / 100.0,
-			Currency:      service.DefaultPricingCurrency,
+			Currency:      defaultPricingCurrency,
 		})
 	}
 

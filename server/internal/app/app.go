@@ -57,8 +57,13 @@ func New(cfg Config) (*App, error) {
 		_ = priceRepo.Close()
 		return nil, err
 	}
+
+	transactionService := service.NewTransactionService(transactionStore, priceService, cfg.SelectionPriceLock)
+	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, cfg.SelectionPriceLock)
 	kioskService := service.NewKioskService()
-	transactionHandler := handlers.NewTransactionHandler(transactionStore, priceService, paymentAdapter, cfg.SelectionPriceLock)
+
+	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
+	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	fuelingHandler := handlers.NewFuelingHandler(transactionStore, fuelingAdapter)
 	adminHandler := handlers.NewAdminHandler(priceService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
@@ -67,6 +72,7 @@ func New(cfg Config) (*App, error) {
 		cfg.AllowedOrigins,
 		transporthttp.AdminAuthConfig{Username: cfg.AdminUsername, Password: cfg.AdminPassword},
 		transactionHandler,
+		paymentHandler,
 		fuelingHandler,
 		adminHandler,
 		kioskHandler,
