@@ -32,7 +32,6 @@ const DEV_SELECTION_DRAFT = {
   orderMode: 'liters',
   amountRub: 0,
   liters: 5,
-  preset: '',
 } as const
 
 const DEV_FUELING_CONFIG = {

@@ -33,11 +33,9 @@ export const fuelingStatuses = [
 export type FuelingStatus = (typeof fuelingStatuses)[number]
 
 // Режимы оформления заправки
-export const orderModes = ['amount', 'liters', 'preset'] as const
+export const orderModes = ['amount', 'liters'] as const
 
 export type OrderMode = (typeof orderModes)[number]
-export type PresetKind = 'liters' | 'amount'
-export type PresetSelection = { kind: PresetKind; value: number } | null
 
 // Тип топлива приходит с сервера, поэтому оставляем строку
 export type FuelType = string
@@ -48,7 +46,6 @@ export interface SelectionPayload {
   orderMode: OrderMode
   amountRub: number
   liters: number
-  preset: string
 }
 
 export interface OrderSummary {
@@ -66,7 +63,6 @@ export interface Transaction {
   orderMode: OrderMode
   amountRub: number
   liters: number
-  preset: string
   priceVersionId: number
   priceVersionTag: string
   unitPriceMinor: number

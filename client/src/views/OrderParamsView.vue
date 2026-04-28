@@ -6,7 +6,7 @@ import StepIndicator from '@/components/StepIndicator.vue'
 import { useTransactionFlowStore } from '@/stores'
 
 interface PresetOption {
-  id: string
+  value: number
   label: string
 }
 
@@ -15,58 +15,69 @@ const store = useTransactionFlowStore()
 
 const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Заправка'] as const
 
-const PRESETS: readonly PresetOption[] = [
-  { id: 'fast_500', label: '500 ₽' },
-  { id: 'fast_1000', label: '1000 ₽' },
-  { id: 'fast_1500', label: '1500 ₽' },
-  { id: 'liters_10', label: '10 л' },
-  { id: 'liters_20', label: '20 л' },
-  { id: 'liters_40', label: '40 л' },
+const amountPresets: readonly PresetOption[] = [
+  { value: 500, label: '500 ₽' },
+  { value: 1000, label: '1000 ₽' },
+  { value: 1500, label: '1500 ₽' },
 ] as const
 
-const amountPresets = computed(() => PRESETS.filter((preset) => preset.id.startsWith('fast_')))
-const litersPresets = computed(() => PRESETS.filter((preset) => preset.id.startsWith('liters_')))
+const litersPresets: readonly PresetOption[] = [
+  { value: 10, label: '10 л' },
+  { value: 20, label: '20 л' },
+  { value: 40, label: '40 л' },
+] as const
 
 const selectedFuel = computed(() => store.selectionDraft.fuelType)
 const selectedMode = computed(() => store.selectionDraft.orderMode)
 const amountRub = computed(() => store.selectionDraft.amountRub)
 const liters = computed(() => store.selectionDraft.liters)
-const selectedPreset = computed(() => store.selectionDraft.preset)
 const canContinue = computed(() => store.isSelectionDraftValid)
+const isAmountPresetSelected = computed(
+  () => selectedMode.value === 'amount' && amountPresets.some((preset) => preset.value === amountRub.value),
+)
+const isLitersPresetSelected = computed(
+  () => selectedMode.value === 'liters' && litersPresets.some((preset) => preset.value === liters.value),
+)
+const isAnyPresetSelected = computed(() => isAmountPresetSelected.value || isLitersPresetSelected.value)
 
-function onAmountInput(event: Event): void {
-  const inputElement = event.target as HTMLInputElement
-  const parsedValue = Number(inputElement.value)
-  const nextAmountRub = Number.isFinite(parsedValue) && parsedValue > 0 ? Math.floor(parsedValue) : 0
+function applyAmountSelection(rawAmountRub: number): void {
+  const nextAmountRub = Number.isFinite(rawAmountRub) && rawAmountRub > 0 ? Math.floor(rawAmountRub) : 0
 
   store.setSelectionDraft({
     orderMode: 'amount',
     amountRub: nextAmountRub,
     liters: 0,
-    preset: '',
   })
 }
 
-function onLitersInput(event: Event): void {
-  const inputElement = event.target as HTMLInputElement
-  const parsedValue = Number(inputElement.value)
-  const nextLiters = Number.isFinite(parsedValue) && parsedValue > 0 ? Number(parsedValue.toFixed(2)) : 0
+function applyLitersSelection(rawLiters: number): void {
+  const nextLiters = Number.isFinite(rawLiters) && rawLiters > 0 ? Number(rawLiters.toFixed(2)) : 0
 
   store.setSelectionDraft({
     orderMode: 'liters',
     amountRub: 0,
     liters: nextLiters,
-    preset: '',
   })
 }
 
-function selectPreset(presetId: string): void {
-  store.setSelectionDraft({
-    orderMode: 'preset',
-    amountRub: 0,
-    liters: 0,
-    preset: presetId,
-  })
+function onAmountInput(event: Event): void {
+  const inputElement = event.target as HTMLInputElement
+  const parsedValue = Number(inputElement.value)
+  applyAmountSelection(parsedValue)
+}
+
+function onLitersInput(event: Event): void {
+  const inputElement = event.target as HTMLInputElement
+  const parsedValue = Number(inputElement.value)
+  applyLitersSelection(parsedValue)
+}
+
+function selectAmountPreset(amountPreset: number): void {
+  applyAmountSelection(amountPreset)
+}
+
+function selectLitersPreset(litersPreset: number): void {
+  applyLitersSelection(litersPreset)
 }
 
 async function handleContinue(): Promise<void> {
@@ -187,7 +198,7 @@ async function goBack(): Promise<void> {
             </h2>
             <span
               class="font-karla text-xs font-semibold tracking-wide uppercase px-3 py-1 rounded-full transition-colors duration-200"
-              :class="selectedMode === 'preset' ? 'bg-fuel-lime text-white' : 'bg-fuel-cream text-fuel-olive'"
+              :class="isAnyPresetSelected ? 'bg-fuel-lime text-white' : 'bg-fuel-cream text-fuel-olive'"
             >
               Быстрый выбор
             </span>
@@ -201,17 +212,17 @@ async function goBack(): Promise<void> {
             >
               <button
                 v-for="preset in amountPresets"
-                :key="preset.id"
+                :key="preset.value"
                 type="button"
                 class="rounded-xl border px-3 py-3 text-left transition-all duration-200
                        focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime"
                 :class="
-                  selectedPreset === preset.id
+                  selectedMode === 'amount' && amountRub === preset.value
                     ? 'border-fuel-lime bg-fuel-lime text-white shadow-md shadow-fuel-lime/20'
                     : 'border-fuel-olive/25 bg-fuel-cream/60 text-fuel-forest hover:border-fuel-lime/60 hover:bg-white active:scale-[0.98]'
                 "
-                :aria-pressed="selectedPreset === preset.id"
-                @click="selectPreset(preset.id)"
+                :aria-pressed="selectedMode === 'amount' && amountRub === preset.value"
+                @click="selectAmountPreset(preset.value)"
               >
                 <p class="font-rubik font-semibold text-lg leading-tight">
                   {{ preset.label }}
@@ -226,17 +237,17 @@ async function goBack(): Promise<void> {
             >
               <button
                 v-for="preset in litersPresets"
-                :key="preset.id"
+                :key="preset.value"
                 type="button"
                 class="rounded-xl border px-3 py-3 text-left transition-all duration-200
                        focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-fuel-lime"
                 :class="
-                  selectedPreset === preset.id
+                  selectedMode === 'liters' && liters === preset.value
                     ? 'border-fuel-lime bg-fuel-lime text-white shadow-md shadow-fuel-lime/20'
                     : 'border-fuel-olive/25 bg-fuel-cream/60 text-fuel-forest hover:border-fuel-lime/60 hover:bg-white active:scale-[0.98]'
                 "
-                :aria-pressed="selectedPreset === preset.id"
-                @click="selectPreset(preset.id)"
+                :aria-pressed="selectedMode === 'liters' && liters === preset.value"
+                @click="selectLitersPreset(preset.value)"
               >
                 <p class="font-rubik font-semibold text-lg leading-tight">
                   {{ preset.label }}
