@@ -1,4 +1,4 @@
-package main
+package service
 
 import (
 	"errors"
@@ -7,69 +7,28 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"AUTO-GAS-STATION/server/internal/model"
 )
 
 const (
-	defaultPricingDBPath     = "data/pricing.db"
-	defaultPricingLockTTLEnv = "10m"
-	defaultPricingCurrency   = "RUB"
+	DefaultPricingDBPath     = "data/pricing.db"
+	DefaultPricingLockTTLEnv = "10m"
+	DefaultPricingCurrency   = "RUB"
 )
 
-type FuelPriceSnapshot struct {
-	PriceVersionID     int64
-	PriceVersionTag    string
-	FuelType           string
-	DisplayName        string
-	Grade              string
-	PricePerLiterMinor int64
-	Currency           string
-	EffectiveFrom      time.Time
-}
-
-type FuelPriceView struct {
-	FuelType       string  `json:"fuelType"`
-	Name           string  `json:"name"`
-	Grade          string  `json:"grade"`
-	PricePerLiter  float64 `json:"pricePerLiter"`
-	Currency       string  `json:"currency"`
-	PriceVersionID int64   `json:"priceVersionId"`
-	VersionTag     string  `json:"versionTag"`
-	EffectiveFrom  string  `json:"effectiveFrom"`
-}
-
-// PriceVersion описывает строку таблицы price_versions с вложенным списком цен
-type PriceVersion struct {
-	ID            int64               `json:"id"`
-	VersionTag    string              `json:"versionTag"`
-	EffectiveFrom time.Time           `json:"effectiveFrom"`
-	CreatedAt     time.Time           `json:"createdAt"`
-	Items         []PriceVersionItem  `json:"items"`
-}
-
-// PriceVersionItem цена одного топлива в конкретной версии
-type PriceVersionItem struct {
-	FuelType      string  `json:"fuelType"`
-	DisplayName   string  `json:"displayName"`
-	Grade         string  `json:"grade"`
-	PricePerLiter float64 `json:"pricePerLiter"`
-	Currency      string  `json:"currency"`
-}
-
-// defaultFuelCatalog используется и для первичного seed, и для заполнения
-// displayName/grade при создании новой версии цен админом
-// Таким образом admin UI просит ввести только цены, остальные поля берем отсюда
-var defaultFuelCatalog = []seededFuelPrice{
-	{FuelType: "АИ-92", DisplayName: "АИ-92", Grade: "Регулярный", PriceMinor: 6153},
-	{FuelType: "АИ-95", DisplayName: "АИ-95", Grade: "Улучшенный", PriceMinor: 6514},
-	{FuelType: "АИ-100", DisplayName: "АИ-100", Grade: "Премиум", PriceMinor: 8780},
-	{FuelType: "ДТ", DisplayName: "ДТ", Grade: "Дизель", PriceMinor: 7861},
+var DefaultFuelCatalog = []model.SeededFuelPrice{
+	{FuelType: "\u0410\u0418-92", DisplayName: "\u0410\u0418-92", Grade: "\u0420\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u044b\u0439", PriceMinor: 6153},
+	{FuelType: "\u0410\u0418-95", DisplayName: "\u0410\u0418-95", Grade: "\u0423\u043b\u0443\u0447\u0448\u0435\u043d\u043d\u044b\u0439", PriceMinor: 6514},
+	{FuelType: "\u0410\u0418-100", DisplayName: "\u0410\u0418-100", Grade: "\u041f\u0440\u0435\u043c\u0438\u0443\u043c", PriceMinor: 8780},
+	{FuelType: "\u0414\u0422", DisplayName: "\u0414\u0422", Grade: "\u0414\u0438\u0437\u0435\u043b\u044c", PriceMinor: 7861},
 }
 
 type PriceRepository interface {
-	GetCurrentPrice(now time.Time, fuelType string) (FuelPriceSnapshot, error)
-	ListCurrentPrices(now time.Time) ([]FuelPriceSnapshot, error)
-	ListVersions(limit int) ([]PriceVersion, error)
-	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []seededFuelPrice) (PriceVersion, error)
+	GetCurrentPrice(now time.Time, fuelType string) (model.FuelPriceSnapshot, error)
+	ListCurrentPrices(now time.Time) ([]model.FuelPriceSnapshot, error)
+	ListVersions(limit int) ([]model.PriceVersion, error)
+	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []model.SeededFuelPrice) (model.PriceVersion, error)
 }
 
 type PriceService struct {
@@ -80,64 +39,59 @@ func NewPriceService(repo PriceRepository) *PriceService {
 	return &PriceService{repo: repo}
 }
 
-func (s *PriceService) GetCurrentPrice(fuelType string) (FuelPriceSnapshot, error) {
+func (s *PriceService) GetCurrentPrice(fuelType string) (model.FuelPriceSnapshot, error) {
 	normalizedFuelType := strings.TrimSpace(fuelType)
 	if normalizedFuelType == "" {
-		return FuelPriceSnapshot{}, errors.New("fuel type is required")
+		return model.FuelPriceSnapshot{}, errors.New("fuel type is required")
 	}
 	price, err := s.repo.GetCurrentPrice(time.Now(), normalizedFuelType)
 	if err != nil {
-		return FuelPriceSnapshot{}, err
+		return model.FuelPriceSnapshot{}, err
 	}
 	return price, nil
 }
 
-// ListVersions отдает историю версий цен от самой свежей к старой
-// limit<=0 означает без ограничения
-func (s *PriceService) ListVersions(limit int) ([]PriceVersion, error) {
+func (s *PriceService) ListVersions(limit int) ([]model.PriceVersion, error) {
 	return s.repo.ListVersions(limit)
 }
 
-// CreatePriceVersion создает новую версию цен из payload админа
-// Admin передает только fuelType + pricePerLiter, displayName/grade берем из defaultFuelCatalog
-func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (PriceVersion, error) {
+func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (model.PriceVersion, error) {
 	versionTag = strings.TrimSpace(versionTag)
 	if versionTag == "" {
 		versionTag = fmt.Sprintf("v-%s", time.Now().UTC().Format("20060102-150405"))
 	}
 	if effectiveFrom.IsZero() {
-		return PriceVersion{}, errors.New("effectiveFrom is required")
+		return model.PriceVersion{}, errors.New("effectiveFrom is required")
 	}
 
-	items := make([]seededFuelPrice, 0, len(defaultFuelCatalog))
-	for _, catalog := range defaultFuelCatalog {
+	items := make([]model.SeededFuelPrice, 0, len(DefaultFuelCatalog))
+	for _, catalog := range DefaultFuelCatalog {
 		priceRub, ok := pricesPerLiter[catalog.FuelType]
 		if !ok {
-			return PriceVersion{}, fmt.Errorf("price for fuel type %q is required", catalog.FuelType)
+			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q is required", catalog.FuelType)
 		}
 		if priceRub <= 0 {
-			return PriceVersion{}, fmt.Errorf("price for fuel type %q must be > 0", catalog.FuelType)
+			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q must be > 0", catalog.FuelType)
 		}
-		priceMinor := int64(math.Round(priceRub * 100))
-		items = append(items, seededFuelPrice{
+		items = append(items, model.SeededFuelPrice{
 			FuelType:    catalog.FuelType,
 			DisplayName: catalog.DisplayName,
 			Grade:       catalog.Grade,
-			PriceMinor:  priceMinor,
+			PriceMinor:  int64(math.Round(priceRub * 100)),
 		})
 	}
 
 	return s.repo.CreatePriceVersion(versionTag, effectiveFrom.UTC(), items)
 }
 
-func (s *PriceService) ListCurrentPrices() ([]FuelPriceView, error) {
+func (s *PriceService) ListCurrentPrices() ([]model.FuelPriceView, error) {
 	rows, err := s.repo.ListCurrentPrices(time.Now())
 	if err != nil {
 		return nil, err
 	}
-	result := make([]FuelPriceView, 0, len(rows))
+	result := make([]model.FuelPriceView, 0, len(rows))
 	for _, row := range rows {
-		result = append(result, FuelPriceView{
+		result = append(result, model.FuelPriceView{
 			FuelType:       row.FuelType,
 			Name:           row.DisplayName,
 			Grade:          row.Grade,
@@ -151,7 +105,7 @@ func (s *PriceService) ListCurrentPrices() ([]FuelPriceView, error) {
 	return result, nil
 }
 
-func (s *PriceService) ApplySelectionPricing(tx *Transaction, lockTTL time.Duration) error {
+func (s *PriceService) ApplySelectionPricing(tx *model.Transaction, lockTTL time.Duration) error {
 	if tx == nil {
 		return errors.New("transaction is required")
 	}
@@ -176,7 +130,7 @@ func (s *PriceService) ApplySelectionPricing(tx *Transaction, lockTTL time.Durat
 	return nil
 }
 
-func (s *PriceService) RepriceIfNeeded(tx *Transaction, lockTTL time.Duration, now time.Time) (bool, error) {
+func (s *PriceService) RepriceIfNeeded(tx *model.Transaction, lockTTL time.Duration, now time.Time) (bool, error) {
 	if tx == nil {
 		return false, errors.New("transaction is required")
 	}
@@ -219,11 +173,7 @@ func ComputeAmountMinor(orderMode string, amountRub int64, liters float64, prese
 		}
 		return int64(math.Round(liters * float64(pricePerLiterMinor))), nil
 	case "preset":
-		amountMinor, err := amountMinorFromPreset(preset, pricePerLiterMinor)
-		if err != nil {
-			return 0, err
-		}
-		return amountMinor, nil
+		return amountMinorFromPreset(preset, pricePerLiterMinor)
 	default:
 		return 0, errors.New("invalid order mode")
 	}

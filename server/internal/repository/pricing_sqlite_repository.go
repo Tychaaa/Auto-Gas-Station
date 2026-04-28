@@ -1,75 +1,37 @@
-package main
+package repository
 
 import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"os"
-	"path/filepath"
-	"strings"
 	"time"
 
+	"AUTO-GAS-STATION/server/internal/model"
+	"AUTO-GAS-STATION/server/internal/service"
 	_ "modernc.org/sqlite"
-)
-
-var (
-	priceService          *PriceService
-	selectionPriceLockTTL = 10 * time.Minute
 )
 
 type SQLitePriceRepository struct {
 	db *sql.DB
 }
 
-type seededFuelPrice struct {
-	FuelType    string
-	DisplayName string
-	Grade       string
-	PriceMinor  int64
-}
-
-func initPricingFromEnv() error {
-	dbPath := strings.TrimSpace(os.Getenv("PRICING_DB_PATH"))
-	if dbPath == "" {
-		dbPath = defaultPricingDBPath
-	}
-
-	lockTTLRaw := strings.TrimSpace(os.Getenv("SELECTION_PRICE_LOCK_TTL"))
-	if lockTTLRaw == "" {
-		lockTTLRaw = defaultPricingLockTTLEnv
-	}
-	lockTTL, err := time.ParseDuration(lockTTLRaw)
-	if err != nil {
-		return fmt.Errorf("invalid SELECTION_PRICE_LOCK_TTL: %w", err)
-	}
-	if lockTTL <= 0 {
-		return errors.New("SELECTION_PRICE_LOCK_TTL must be > 0")
-	}
-	selectionPriceLockTTL = lockTTL
-
-	if err := os.MkdirAll(filepath.Dir(dbPath), 0o755); err != nil {
-		return fmt.Errorf("create pricing directory: %w", err)
-	}
+func NewSQLitePriceRepository(dbPath string) (*SQLitePriceRepository, error) {
 	db, err := sql.Open("sqlite", dbPath)
 	if err != nil {
-		return fmt.Errorf("open pricing sqlite: %w", err)
+		return nil, fmt.Errorf("open pricing sqlite: %w", err)
 	}
 	db.SetMaxOpenConns(1)
-
-	repo := &SQLitePriceRepository{db: db}
-	if err := repo.initSchema(); err != nil {
-		_ = db.Close()
-		return err
-	}
-	if err := repo.seedIfEmpty(); err != nil {
-		_ = db.Close()
-		return err
-	}
-	priceService = NewPriceService(repo)
-	return nil
+	return &SQLitePriceRepository{db: db}, nil
 }
 
-func (r *SQLitePriceRepository) initSchema() error {
+func (r *SQLitePriceRepository) Close() error {
+	if r == nil || r.db == nil {
+		return nil
+	}
+	return r.db.Close()
+}
+
+func (r *SQLitePriceRepository) InitSchema() error {
 	schema := []string{
 		`CREATE TABLE IF NOT EXISTS price_versions (
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,7 +64,7 @@ func (r *SQLitePriceRepository) initSchema() error {
 	return nil
 }
 
-func (r *SQLitePriceRepository) seedIfEmpty() error {
+func (r *SQLitePriceRepository) SeedIfEmpty(items []model.SeededFuelPrice) error {
 	var count int64
 	if err := r.db.QueryRow(`SELECT COUNT(1) FROM price_versions`).Scan(&count); err != nil {
 		return fmt.Errorf("count price versions: %w", err)
@@ -110,22 +72,19 @@ func (r *SQLitePriceRepository) seedIfEmpty() error {
 	if count > 0 {
 		return nil
 	}
-
-	_, err := r.CreatePriceVersion("v1-initial", time.Now().UTC(), defaultFuelCatalog)
+	_, err := r.CreatePriceVersion("v1-initial", time.Now().UTC(), items)
 	if err != nil {
 		return fmt.Errorf("seed initial prices: %w", err)
 	}
 	return nil
 }
 
-// CreatePriceVersion вставляет новую версию цен и все ее позиции одной транзакцией
-// Используется и при первичном seed, и при создании новой версии из admin UI
-func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []seededFuelPrice) (PriceVersion, error) {
+func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []model.SeededFuelPrice) (model.PriceVersion, error) {
 	if versionTag == "" {
-		return PriceVersion{}, errors.New("version tag is required")
+		return model.PriceVersion{}, errors.New("version tag is required")
 	}
 	if len(items) == 0 {
-		return PriceVersion{}, errors.New("at least one fuel price is required")
+		return model.PriceVersion{}, errors.New("at least one fuel price is required")
 	}
 
 	now := time.Now().UTC()
@@ -133,7 +92,7 @@ func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveF
 
 	tx, err := r.db.Begin()
 	if err != nil {
-		return PriceVersion{}, fmt.Errorf("begin create version tx: %w", err)
+		return model.PriceVersion{}, fmt.Errorf("begin create version tx: %w", err)
 	}
 	defer func() {
 		if err != nil {
@@ -146,19 +105,19 @@ func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveF
 		versionTag, effectiveFromUTC, now,
 	)
 	if err != nil {
-		return PriceVersion{}, fmt.Errorf("insert price version: %w", err)
+		return model.PriceVersion{}, fmt.Errorf("insert price version: %w", err)
 	}
 	versionID, err := res.LastInsertId()
 	if err != nil {
-		return PriceVersion{}, fmt.Errorf("resolve version id: %w", err)
+		return model.PriceVersion{}, fmt.Errorf("resolve version id: %w", err)
 	}
 
-	result := PriceVersion{
+	result := model.PriceVersion{
 		ID:            versionID,
 		VersionTag:    versionTag,
 		EffectiveFrom: effectiveFromUTC,
 		CreatedAt:     now,
-		Items:         make([]PriceVersionItem, 0, len(items)),
+		Items:         make([]model.PriceVersionItem, 0, len(items)),
 	}
 
 	for _, item := range items {
@@ -171,28 +130,27 @@ func (r *SQLitePriceRepository) CreatePriceVersion(versionTag string, effectiveF
 			item.DisplayName,
 			item.Grade,
 			item.PriceMinor,
-			defaultPricingCurrency,
+			service.DefaultPricingCurrency,
 			now,
 		); err != nil {
-			return PriceVersion{}, fmt.Errorf("insert fuel price for %s: %w", item.FuelType, err)
+			return model.PriceVersion{}, fmt.Errorf("insert fuel price for %s: %w", item.FuelType, err)
 		}
-		result.Items = append(result.Items, PriceVersionItem{
+		result.Items = append(result.Items, model.PriceVersionItem{
 			FuelType:      item.FuelType,
 			DisplayName:   item.DisplayName,
 			Grade:         item.Grade,
 			PricePerLiter: float64(item.PriceMinor) / 100.0,
-			Currency:      defaultPricingCurrency,
+			Currency:      service.DefaultPricingCurrency,
 		})
 	}
 
 	if err = tx.Commit(); err != nil {
-		return PriceVersion{}, fmt.Errorf("commit create version tx: %w", err)
+		return model.PriceVersion{}, fmt.Errorf("commit create version tx: %w", err)
 	}
 	return result, nil
 }
 
-// ListVersions отдает версии цен вместе со всеми позициями, от самой свежей к старой
-func (r *SQLitePriceRepository) ListVersions(limit int) ([]PriceVersion, error) {
+func (r *SQLitePriceRepository) ListVersions(limit int) ([]model.PriceVersion, error) {
 	query := `
 SELECT id, version_tag, effective_from, created_at
 FROM price_versions
@@ -209,9 +167,9 @@ ORDER BY effective_from DESC, id DESC`
 	}
 	defer rows.Close()
 
-	var versions []PriceVersion
+	var versions []model.PriceVersion
 	for rows.Next() {
-		var v PriceVersion
+		var v model.PriceVersion
 		if err := rows.Scan(&v.ID, &v.VersionTag, &v.EffectiveFrom, &v.CreatedAt); err != nil {
 			return nil, fmt.Errorf("scan price version: %w", err)
 		}
@@ -231,7 +189,7 @@ ORDER BY effective_from DESC, id DESC`
 	return versions, nil
 }
 
-func (r *SQLitePriceRepository) listVersionItems(versionID int64) ([]PriceVersionItem, error) {
+func (r *SQLitePriceRepository) listVersionItems(versionID int64) ([]model.PriceVersionItem, error) {
 	const q = `
 SELECT fuel_type, display_name, grade, price_per_liter_minor, currency
 FROM fuel_prices
@@ -244,12 +202,10 @@ ORDER BY fuel_type ASC`
 	}
 	defer rows.Close()
 
-	var items []PriceVersionItem
+	var items []model.PriceVersionItem
 	for rows.Next() {
-		var (
-			item       PriceVersionItem
-			priceMinor int64
-		)
+		var item model.PriceVersionItem
+		var priceMinor int64
 		if err := rows.Scan(&item.FuelType, &item.DisplayName, &item.Grade, &priceMinor, &item.Currency); err != nil {
 			return nil, fmt.Errorf("scan version item: %w", err)
 		}
@@ -262,26 +218,16 @@ ORDER BY fuel_type ASC`
 	return items, nil
 }
 
-func (r *SQLitePriceRepository) GetCurrentPrice(now time.Time, fuelType string) (FuelPriceSnapshot, error) {
+func (r *SQLitePriceRepository) GetCurrentPrice(now time.Time, fuelType string) (model.FuelPriceSnapshot, error) {
 	const q = `
-SELECT
-	pv.id,
-	pv.version_tag,
-	pv.effective_from,
-	fp.fuel_type,
-	fp.display_name,
-	fp.grade,
-	fp.price_per_liter_minor,
-	fp.currency
+SELECT pv.id, pv.version_tag, pv.effective_from, fp.fuel_type, fp.display_name, fp.grade, fp.price_per_liter_minor, fp.currency
 FROM fuel_prices fp
 INNER JOIN price_versions pv ON pv.id = fp.price_version_id
-WHERE fp.fuel_type = ?
-  AND pv.effective_from <= ?
+WHERE fp.fuel_type = ? AND pv.effective_from <= ?
 ORDER BY pv.effective_from DESC, pv.id DESC
-LIMIT 1;
-`
+LIMIT 1;`
 
-	var snapshot FuelPriceSnapshot
+	var snapshot model.FuelPriceSnapshot
 	err := r.db.QueryRow(q, fuelType, now.UTC()).Scan(
 		&snapshot.PriceVersionID,
 		&snapshot.PriceVersionTag,
@@ -293,15 +239,15 @@ LIMIT 1;
 		&snapshot.Currency,
 	)
 	if errors.Is(err, sql.ErrNoRows) {
-		return FuelPriceSnapshot{}, fmt.Errorf("price for fuel type %q not found", fuelType)
+		return model.FuelPriceSnapshot{}, fmt.Errorf("price for fuel type %q not found", fuelType)
 	}
 	if err != nil {
-		return FuelPriceSnapshot{}, fmt.Errorf("query current price: %w", err)
+		return model.FuelPriceSnapshot{}, fmt.Errorf("query current price: %w", err)
 	}
 	return snapshot, nil
 }
 
-func (r *SQLitePriceRepository) ListCurrentPrices(now time.Time) ([]FuelPriceSnapshot, error) {
+func (r *SQLitePriceRepository) ListCurrentPrices(now time.Time) ([]model.FuelPriceSnapshot, error) {
 	const q = `
 WITH current_version AS (
 	SELECT id, version_tag, effective_from
@@ -310,19 +256,10 @@ WITH current_version AS (
 	ORDER BY effective_from DESC, id DESC
 	LIMIT 1
 )
-SELECT
-	cv.id,
-	cv.version_tag,
-	cv.effective_from,
-	fp.fuel_type,
-	fp.display_name,
-	fp.grade,
-	fp.price_per_liter_minor,
-	fp.currency
+SELECT cv.id, cv.version_tag, cv.effective_from, fp.fuel_type, fp.display_name, fp.grade, fp.price_per_liter_minor, fp.currency
 FROM fuel_prices fp
 INNER JOIN current_version cv ON cv.id = fp.price_version_id
-ORDER BY fp.fuel_type ASC;
-`
+ORDER BY fp.fuel_type ASC;`
 
 	rows, err := r.db.Query(q, now.UTC())
 	if err != nil {
@@ -330,9 +267,9 @@ ORDER BY fp.fuel_type ASC;
 	}
 	defer rows.Close()
 
-	var result []FuelPriceSnapshot
+	var result []model.FuelPriceSnapshot
 	for rows.Next() {
-		var row FuelPriceSnapshot
+		var row model.FuelPriceSnapshot
 		if err := rows.Scan(
 			&row.PriceVersionID,
 			&row.PriceVersionTag,
