@@ -11,6 +11,7 @@ func NewRouter(
 	allowedOrigins []string,
 	adminAuth AdminAuthConfig,
 	transactionHandler *handlers.TransactionHandler,
+	paymentHandler *handlers.PaymentHandler,
 	fuelingHandler *handlers.FuelingHandler,
 	adminHandler *handlers.AdminHandler,
 	kioskHandler *handlers.KioskHandler,
@@ -23,24 +24,24 @@ func NewRouter(
 		c.JSON(nethttp.StatusOK, gin.H{"status": "ok"})
 	})
 
-	RegisterTransactionRoutes(router, transactionHandler)
+	RegisterTransactionRoutes(router, transactionHandler, paymentHandler)
 	RegisterFuelingRoutes(router, fuelingHandler)
 	RegisterKioskRoutes(router, kioskHandler)
 	RegisterAdminRoutes(router, adminAuth, adminHandler, kioskHandler)
 	return router
 }
 
-func RegisterTransactionRoutes(r *gin.Engine, h *handlers.TransactionHandler) {
+func RegisterTransactionRoutes(r *gin.Engine, transactions *handlers.TransactionHandler, payments *handlers.PaymentHandler) {
 	v1 := r.Group("/api/v1")
-	v1.GET("/fuel-prices", h.FuelPrices)
-	v1.POST("/transactions", h.CreateTransaction)
-	v1.GET("/transactions/:id", h.GetTransaction)
+	v1.GET("/fuel-prices", transactions.FuelPrices)
+	v1.POST("/transactions", transactions.CreateTransaction)
+	v1.GET("/transactions/:id", transactions.GetTransaction)
 
 	tx := v1.Group("/transactions/:id")
 	{
-		tx.PUT("/selection", h.UpdateSelection)
-		tx.POST("/payment/start", h.StartPayment)
-		tx.POST("/payment/status", h.PaymentStatus)
+		tx.PUT("/selection", transactions.UpdateSelection)
+		tx.POST("/payment/start", payments.Start)
+		tx.POST("/payment/status", payments.Status)
 		tx.POST("/fiscalization/start", NotImplemented("fiscalization start"))
 		tx.POST("/fiscalization/complete", NotImplemented("fiscalization complete"))
 		tx.POST("/fiscalization/fail", NotImplemented("fiscalization fail"))

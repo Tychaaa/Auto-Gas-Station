@@ -38,17 +38,6 @@ const (
 	FiscalStatusFailed  FiscalStatus = "failed"
 )
 
-// Подэтап отпуска топлива при статусе TransactionStatusFueling
-type FuelingStatus string
-
-const (
-	FuelingStatusNone                   FuelingStatus = "none"
-	FuelingStatusStarting               FuelingStatus = "starting"
-	FuelingStatusDispensing             FuelingStatus = "dispensing"
-	FuelingStatusCompletedWaitingFiscal FuelingStatus = "completed_waiting_fiscal"
-	FuelingStatusFailed                 FuelingStatus = "failed"
-)
-
 // Данные заказа и текущие статусы проведения
 type Transaction struct {
 	ID                  string
