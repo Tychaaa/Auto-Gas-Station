@@ -118,7 +118,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
 
     const calculatedLiters =
       liters === null && unitPrice !== null && totalAmount !== null && unitPrice > 0
-        ? Number((totalAmount / unitPrice).toFixed(2))
+        ? Math.ceil((totalAmount / unitPrice) * 100) / 100
         : null
 
     return {
