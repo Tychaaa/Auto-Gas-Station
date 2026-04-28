@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -12,6 +13,15 @@ import (
 
 const DefaultVendotekMockBaseURL = "http://localhost:8082"
 
+const (
+	defaultFuelPort     = "COM1"
+	defaultFuelBaud     = 4800
+	defaultFuelDataBits = 7
+	defaultFuelStopBits = 2
+	defaultFuelParity   = "even"
+	defaultFuelAddress  = 1
+)
+
 type Config struct {
 	GinMode             string
 	Port                string
@@ -19,6 +29,18 @@ type Config struct {
 	PricingDBPath       string
 	SelectionPriceLock  time.Duration
 	VendotekMockBaseURL string
+	AdminUsername       string
+	AdminPassword       string
+	FuelSerial          FuelSerialConfig
+}
+
+type FuelSerialConfig struct {
+	Port     string
+	Baud     int
+	DataBits int
+	StopBits int
+	Parity   string
+	Address  int
 }
 
 func Load() (Config, error) {
@@ -32,6 +54,15 @@ func Load() (Config, error) {
 	}
 
 	mode := envString("GIN_MODE", gin.DebugMode)
+	adminUsername := envString("ADMIN_USERNAME", "")
+	adminPassword := envString("ADMIN_PASSWORD", "")
+	if adminUsername == "" {
+		return Config{}, fmt.Errorf("ADMIN_USERNAME is required")
+	}
+	if adminPassword == "" {
+		return Config{}, fmt.Errorf("ADMIN_PASSWORD is required")
+	}
+
 	return Config{
 		GinMode:             mode,
 		Port:                envString("PORT", "8080"),
@@ -39,6 +70,16 @@ func Load() (Config, error) {
 		PricingDBPath:       envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
 		SelectionPriceLock:  lockTTL,
 		VendotekMockBaseURL: envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
+		AdminUsername:       adminUsername,
+		AdminPassword:       adminPassword,
+		FuelSerial: FuelSerialConfig{
+			Port:     envString("FUEL_PORT", defaultFuelPort),
+			Baud:     envInt("FUEL_BAUD", defaultFuelBaud),
+			DataBits: envInt("FUEL_DATABITS", defaultFuelDataBits),
+			StopBits: envInt("FUEL_STOPBITS", defaultFuelStopBits),
+			Parity:   envString("FUEL_PARITY", defaultFuelParity),
+			Address:  envInt("FUEL_ADDRESS", defaultFuelAddress),
+		},
 	}, nil
 }
 
@@ -48,6 +89,18 @@ func envString(name string, fallback string) string {
 		return fallback
 	}
 	return value
+}
+
+func envInt(name string, fallback int) int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
 }
 
 func resolveAllowedOrigins(mode string) []string {

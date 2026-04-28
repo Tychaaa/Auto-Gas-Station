@@ -1,4 +1,4 @@
-package main
+package azt
 
 import (
 	"context"
@@ -9,19 +9,28 @@ import (
 	"go.bug.st/serial"
 )
 
-type AZTTransport interface {
+type SerialConfig struct {
+	Port     string
+	Baud     int
+	DataBits int
+	StopBits int
+	Parity   string
+	Address  int
+}
+
+type Transport interface {
 	Exchange(ctx context.Context, frame []byte) ([]byte, error)
 	Close() error
 }
 
 type WindowsSerialTransport struct {
 	port serial.Port
-	cfg  FuelSerialConfig
+	cfg  SerialConfig
 }
 
 const defaultSerialExchangeTimeout = 1200 * time.Millisecond
 
-func NewWindowsSerialTransport(cfg FuelSerialConfig) (*WindowsSerialTransport, error) {
+func NewWindowsSerialTransport(cfg SerialConfig) (*WindowsSerialTransport, error) {
 	if cfg.Port == "" {
 		return nil, fmt.Errorf("serial port is required")
 	}
@@ -76,7 +85,7 @@ func (t *WindowsSerialTransport) Exchange(ctx context.Context, frame []byte) ([]
 		n, err := t.port.Read(buffer)
 		if n > 0 {
 			readBuf = append(readBuf, buffer[:n]...)
-			if isAZTPacketComplete(readBuf) {
+			if isPacketComplete(readBuf) {
 				return append([]byte(nil), readBuf...), nil
 			}
 		}
@@ -101,7 +110,7 @@ func (t *WindowsSerialTransport) Close() error {
 	return err
 }
 
-func buildSerialMode(cfg FuelSerialConfig) (*serial.Mode, error) {
+func buildSerialMode(cfg SerialConfig) (*serial.Mode, error) {
 	mode := &serial.Mode{
 		BaudRate: cfg.Baud,
 	}

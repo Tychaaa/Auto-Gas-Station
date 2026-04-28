@@ -1,11 +1,11 @@
-package main
+package azt
 
 import (
 	"context"
 	"fmt"
 )
 
-type AZTStatusSnapshot struct {
+type StatusSnapshot struct {
 	StatusCode      byte
 	ReasonCode      byte
 	ProviderStatus  string
@@ -14,19 +14,19 @@ type AZTStatusSnapshot struct {
 	Partial         bool
 }
 
-type AZTDeliveryTotals struct {
+type DeliveryTotals struct {
 	DispensedLiters float64
 	AmountRub       int64
 	PriceRub        int64
 }
 
-type AZTMasterClient struct {
-	transport AZTTransport
+type MasterClient struct {
+	transport Transport
 	startByte byte
 	address   byte
 }
 
-func NewAZTMasterClient(transport AZTTransport, address int) (*AZTMasterClient, error) {
+func NewMasterClient(transport Transport, address int) (*MasterClient, error) {
 	if transport == nil {
 		return nil, fmt.Errorf("azt transport is required")
 	}
@@ -34,56 +34,56 @@ func NewAZTMasterClient(transport AZTTransport, address int) (*AZTMasterClient, 
 		return nil, fmt.Errorf("azt address must be in range 1..15")
 	}
 
-	return &AZTMasterClient{
+	return &MasterClient{
 		transport: transport,
 		startByte: aztSTX,
 		address:   byte(0x20 + address),
 	}, nil
 }
 
-func (c *AZTMasterClient) Close() error {
+func (c *MasterClient) Close() error {
 	if c == nil || c.transport == nil {
 		return nil
 	}
 	return c.transport.Close()
 }
 
-func (c *AZTMasterClient) GetStatus(ctx context.Context) (AZTStatusSnapshot, error) {
+func (c *MasterClient) GetStatus(ctx context.Context) (StatusSnapshot, error) {
 	resp, err := c.exchange(ctx, aztCmdStatus, nil)
 	if err != nil {
-		return AZTStatusSnapshot{}, err
+		return StatusSnapshot{}, err
 	}
 	if resp.ShortResponse != nil {
-		return AZTStatusSnapshot{}, fmt.Errorf("unexpected short response for status")
+		return StatusSnapshot{}, fmt.Errorf("unexpected short response for status")
 	}
 	if len(resp.Data) < 1 {
-		return AZTStatusSnapshot{}, fmt.Errorf("status response is empty")
+		return StatusSnapshot{}, fmt.Errorf("status response is empty")
 	}
 
-	snapshot := mapAZTStatus(resp.Data[0], 0)
+	snapshot := mapStatus(resp.Data[0], 0)
 	if len(resp.Data) > 1 {
-		snapshot = mapAZTStatus(resp.Data[0], resp.Data[1])
+		snapshot = mapStatus(resp.Data[0], resp.Data[1])
 	}
 	return snapshot, nil
 }
 
-func (c *AZTMasterClient) SetPrice(ctx context.Context, amountMinor int64) error {
+func (c *MasterClient) SetPrice(ctx context.Context, amountMinor int64) error {
 	resp, err := c.exchange(ctx, aztCmdSetPrice, mustEncodeMinorUnits(amountMinor, 4))
 	if err != nil {
 		return err
 	}
-	return expectAZTAck(resp, "set price")
+	return expectAck(resp, "set price")
 }
 
-func (c *AZTMasterClient) SetAmountDose(ctx context.Context, amountMinor int64) error {
+func (c *MasterClient) SetAmountDose(ctx context.Context, amountMinor int64) error {
 	resp, err := c.exchange(ctx, aztCmdSetAmountDose, mustEncodeMinorUnits(amountMinor, 6))
 	if err != nil {
 		return err
 	}
-	return expectAZTAck(resp, "set amount dose")
+	return expectAck(resp, "set amount dose")
 }
 
-func (c *AZTMasterClient) SetLitersDose(ctx context.Context, liters float64) error {
+func (c *MasterClient) SetLitersDose(ctx context.Context, liters float64) error {
 	units := int64(liters*100 + 0.5)
 	payload, err := encodeDigits(units, 5)
 	if err != nil {
@@ -93,18 +93,18 @@ func (c *AZTMasterClient) SetLitersDose(ctx context.Context, liters float64) err
 	if err != nil {
 		return err
 	}
-	return expectAZTAck(resp, "set liters dose")
+	return expectAck(resp, "set liters dose")
 }
 
-func (c *AZTMasterClient) Authorize(ctx context.Context) error {
+func (c *MasterClient) Authorize(ctx context.Context) error {
 	resp, err := c.exchange(ctx, aztCmdAuthorize, nil)
 	if err != nil {
 		return err
 	}
-	return expectAZTAck(resp, "authorize")
+	return expectAck(resp, "authorize")
 }
 
-func (c *AZTMasterClient) ReadCurrentVolume(ctx context.Context) (float64, error) {
+func (c *MasterClient) ReadCurrentVolume(ctx context.Context) (float64, error) {
 	resp, err := c.exchange(ctx, aztCmdCurrentVolume, nil)
 	if err != nil {
 		return 0, err
@@ -122,16 +122,16 @@ func (c *AZTMasterClient) ReadCurrentVolume(ctx context.Context) (float64, error
 	return float64(value) / 100, nil
 }
 
-func (c *AZTMasterClient) ReadTotals(ctx context.Context) (AZTDeliveryTotals, error) {
+func (c *MasterClient) ReadTotals(ctx context.Context) (DeliveryTotals, error) {
 	resp, err := c.exchange(ctx, aztCmdTotals, nil)
 	if err != nil {
-		return AZTDeliveryTotals{}, err
+		return DeliveryTotals{}, err
 	}
 	if resp.ShortResponse != nil {
-		return AZTDeliveryTotals{}, fmt.Errorf("unexpected short response for totals")
+		return DeliveryTotals{}, fmt.Errorf("unexpected short response for totals")
 	}
 	if len(resp.Data) < 18 {
-		return AZTDeliveryTotals{}, fmt.Errorf("unexpected totals payload length")
+		return DeliveryTotals{}, fmt.Errorf("unexpected totals payload length")
 	}
 
 	litersDigits := resp.Data[:6]
@@ -140,52 +140,52 @@ func (c *AZTMasterClient) ReadTotals(ctx context.Context) (AZTDeliveryTotals, er
 
 	liters, err := decodeDigits(litersDigits)
 	if err != nil {
-		return AZTDeliveryTotals{}, err
+		return DeliveryTotals{}, err
 	}
 	amountMinor, err := decodeDigits(amountDigits)
 	if err != nil {
-		return AZTDeliveryTotals{}, err
+		return DeliveryTotals{}, err
 	}
 	priceMinor, err := decodeDigits(priceDigits)
 	if err != nil {
-		return AZTDeliveryTotals{}, err
+		return DeliveryTotals{}, err
 	}
 
-	return AZTDeliveryTotals{
+	return DeliveryTotals{
 		DispensedLiters: float64(liters) / 100,
 		AmountRub:       amountMinor / 100,
 		PriceRub:        priceMinor / 100,
 	}, nil
 }
 
-func (c *AZTMasterClient) ConfirmTotals(ctx context.Context) error {
+func (c *MasterClient) ConfirmTotals(ctx context.Context) error {
 	resp, err := c.exchange(ctx, aztCmdConfirmTotals, nil)
 	if err != nil {
 		return err
 	}
-	return expectAZTAck(resp, "confirm totals")
+	return expectAck(resp, "confirm totals")
 }
 
-func (c *AZTMasterClient) exchange(ctx context.Context, command byte, data []byte) (AZTResponse, error) {
-	frame, err := EncodeAZTRequest(AZTRequest{
+func (c *MasterClient) exchange(ctx context.Context, command byte, data []byte) (Response, error) {
+	frame, err := EncodeRequest(Request{
 		StartByte: c.startByte,
 		Address:   c.address,
 		Command:   command,
 		Data:      data,
 	})
 	if err != nil {
-		return AZTResponse{}, err
+		return Response{}, err
 	}
 
 	raw, err := c.transport.Exchange(ctx, frame)
 	if err != nil {
-		return AZTResponse{}, err
+		return Response{}, err
 	}
-	return DecodeAZTResponse(raw)
+	return DecodeResponse(raw)
 }
 
-func mapAZTStatus(status byte, reason byte) AZTStatusSnapshot {
-	snapshot := AZTStatusSnapshot{
+func mapStatus(status byte, reason byte) StatusSnapshot {
+	snapshot := StatusSnapshot{
 		StatusCode: status,
 		ReasonCode: reason,
 	}
@@ -220,16 +220,16 @@ func mustEncodeMinorUnits(amountMinor int64, width int) []byte {
 	return digits
 }
 
-func expectAZTAck(resp AZTResponse, operation string) error {
+func expectAck(resp Response, operation string) error {
 	if resp.ShortResponse == nil {
 		return fmt.Errorf("%s: expected short response", operation)
 	}
 	switch *resp.ShortResponse {
-	case AZTShortResponseACK:
+	case ShortResponseACK:
 		return nil
-	case AZTShortResponseCAN:
+	case ShortResponseCAN:
 		return fmt.Errorf("%s: command rejected in current state", operation)
-	case AZTShortResponseNAK:
+	case ShortResponseNAK:
 		return fmt.Errorf("%s: command not supported", operation)
 	default:
 		return fmt.Errorf("%s: unexpected short response", operation)

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"AUTO-GAS-STATION/server/internal/adapter/azt"
+	adapterfueling "AUTO-GAS-STATION/server/internal/adapter/fueling"
 	"AUTO-GAS-STATION/server/internal/adapter/payment"
 	"AUTO-GAS-STATION/server/internal/config"
 	"AUTO-GAS-STATION/server/internal/repository"
@@ -43,9 +45,32 @@ func New(cfg Config) (*App, error) {
 	priceService := service.NewPriceService(priceRepo)
 	transactionStore := repository.NewTransactionStore()
 	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
+	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
+		Port:     cfg.FuelSerial.Port,
+		Baud:     cfg.FuelSerial.Baud,
+		DataBits: cfg.FuelSerial.DataBits,
+		StopBits: cfg.FuelSerial.StopBits,
+		Parity:   cfg.FuelSerial.Parity,
+		Address:  cfg.FuelSerial.Address,
+	})
+	if err != nil {
+		_ = priceRepo.Close()
+		return nil, err
+	}
+	kioskService := service.NewKioskService()
 	transactionHandler := handlers.NewTransactionHandler(transactionStore, priceService, paymentAdapter, cfg.SelectionPriceLock)
+	fuelingHandler := handlers.NewFuelingHandler(transactionStore, fuelingAdapter)
+	adminHandler := handlers.NewAdminHandler(priceService)
+	kioskHandler := handlers.NewKioskHandler(kioskService)
 
-	router := transporthttp.NewRouter(cfg.AllowedOrigins, transactionHandler)
+	router := transporthttp.NewRouter(
+		cfg.AllowedOrigins,
+		transporthttp.AdminAuthConfig{Username: cfg.AdminUsername, Password: cfg.AdminPassword},
+		transactionHandler,
+		fuelingHandler,
+		adminHandler,
+		kioskHandler,
+	)
 	server := &http.Server{
 		Addr:              "127.0.0.1:" + cfg.Port,
 		Handler:           router,

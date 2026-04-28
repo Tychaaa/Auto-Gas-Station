@@ -1,4 +1,4 @@
-package main
+package azt
 
 import (
 	"bytes"
@@ -30,27 +30,27 @@ const (
 	aztCmdReadDose          = byte('X')
 )
 
-type AZTShortResponse byte
+type ShortResponse byte
 
 const (
-	AZTShortResponseACK AZTShortResponse = aztACK
-	AZTShortResponseNAK AZTShortResponse = aztNAK
-	AZTShortResponseCAN AZTShortResponse = aztCAN
+	ShortResponseACK ShortResponse = aztACK
+	ShortResponseNAK ShortResponse = aztNAK
+	ShortResponseCAN ShortResponse = aztCAN
 )
 
-type AZTRequest struct {
+type Request struct {
 	StartByte byte
 	Address   byte
 	Command   byte
 	Data      []byte
 }
 
-type AZTResponse struct {
-	ShortResponse *AZTShortResponse
+type Response struct {
+	ShortResponse *ShortResponse
 	Data          []byte
 }
 
-func DecodeAZTPayload(raw []byte) ([]byte, error) {
+func DecodePayload(raw []byte) ([]byte, error) {
 	if len(raw) < 5 {
 		return nil, errors.New("azt packet is too short")
 	}
@@ -74,20 +74,20 @@ func DecodeAZTPayload(raw []byte) ([]byte, error) {
 	data := make([]byte, 0, len(body)/2)
 	for i := 0; i < len(body); i += 2 {
 		value := body[i]
-		if body[i+1] != aztComplement(value) {
+		if body[i+1] != complement(value) {
 			return nil, fmt.Errorf("azt complement mismatch at position %d", i/2)
 		}
 		data = append(data, value)
 	}
 
-	if checksum != calculateAZTChecksum(data) {
+	if checksum != calculateChecksum(data) {
 		return nil, errors.New("azt checksum mismatch")
 	}
 
 	return data, nil
 }
 
-func EncodeAZTRequest(req AZTRequest) ([]byte, error) {
+func EncodeRequest(req Request) ([]byte, error) {
 	if req.StartByte == 0 {
 		req.StartByte = aztSTX
 	}
@@ -107,52 +107,52 @@ func EncodeAZTRequest(req AZTRequest) ([]byte, error) {
 	buf.WriteByte(req.StartByte)
 	for _, b := range payload {
 		buf.WriteByte(b)
-		buf.WriteByte(aztComplement(b))
+		buf.WriteByte(complement(b))
 	}
 	buf.WriteByte(aztETX)
 	buf.WriteByte(aztETX)
-	buf.WriteByte(calculateAZTChecksum(payload))
+	buf.WriteByte(calculateChecksum(payload))
 	return buf.Bytes(), nil
 }
 
-func EncodeAZTDataResponse(data []byte) []byte {
+func EncodeDataResponse(data []byte) []byte {
 	buf := bytes.NewBuffer(make([]byte, 0, 2+len(data)*2+3))
 	buf.WriteByte(aztDEL)
 	buf.WriteByte(aztSTX)
 	for _, b := range data {
 		buf.WriteByte(b)
-		buf.WriteByte(aztComplement(b))
+		buf.WriteByte(complement(b))
 	}
 	buf.WriteByte(aztETX)
 	buf.WriteByte(aztETX)
-	buf.WriteByte(calculateAZTChecksum(data))
+	buf.WriteByte(calculateChecksum(data))
 	return buf.Bytes()
 }
 
-func EncodeAZTShortResponse(code AZTShortResponse) []byte {
+func EncodeShortResponse(code ShortResponse) []byte {
 	return []byte{aztDEL, byte(code)}
 }
 
-func DecodeAZTResponse(raw []byte) (AZTResponse, error) {
+func DecodeResponse(raw []byte) (Response, error) {
 	if len(raw) < 2 {
-		return AZTResponse{}, errors.New("azt response is too short")
+		return Response{}, errors.New("azt response is too short")
 	}
 	if raw[0] == aztDEL && len(raw) == 2 {
 		switch raw[1] {
 		case aztACK, aztNAK, aztCAN:
-			code := AZTShortResponse(raw[1])
-			return AZTResponse{ShortResponse: &code}, nil
+			code := ShortResponse(raw[1])
+			return Response{ShortResponse: &code}, nil
 		}
 	}
 
-	data, err := DecodeAZTPayload(raw)
+	data, err := DecodePayload(raw)
 	if err != nil {
-		return AZTResponse{}, err
+		return Response{}, err
 	}
-	return AZTResponse{Data: data}, nil
+	return Response{Data: data}, nil
 }
 
-func calculateAZTChecksum(data []byte) byte {
+func calculateChecksum(data []byte) byte {
 	checksum := byte(0)
 	for _, b := range data {
 		checksum ^= b
@@ -162,9 +162,7 @@ func calculateAZTChecksum(data []byte) byte {
 	return checksum
 }
 
-// aztComplement возвращает 7-битный комплиментарный байт по протоколу АЗТ 2.0:
-// инвертируются только биты 0..6, бит 7 всегда равен 0. См. разд. 4 спецификации.
-func aztComplement(b byte) byte {
+func complement(b byte) byte {
 	return b ^ 0x7F
 }
 
@@ -195,7 +193,7 @@ func decodeDigits(data []byte) (int64, error) {
 	return result, nil
 }
 
-func isAZTPacketComplete(raw []byte) bool {
+func isPacketComplete(raw []byte) bool {
 	if len(raw) < 2 {
 		return false
 	}
