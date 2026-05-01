@@ -64,7 +64,7 @@ type Transaction struct {
 	ReceiptNumber       string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
-	// Поля топливного контура после оплаты и до MarkFiscalizing
+	// Поля топливного контура от старта налива до его завершения
 	FuelingStatus    FuelingStatus
 	FuelingError     string
 	FuelingSessionID string
@@ -157,10 +157,15 @@ func (t *Transaction) MarkPaymentFailed(msg string) error {
 	return nil
 }
 
-// Переход из paid в fueling sessionID выдает API отпуска или заглушка
+// Переход из paid в fueling sessionID выдает API отпуска или заглушка.
+// Перед стартом отпуска требует, чтобы фискальный чек уже был напечатан
+// (FiscalStatus == done) - иначе нарушается порядок "оплата -> чек -> налив".
 func (t *Transaction) BeginFueling(sessionID string) error {
 	if t.Status != TransactionStatusPaid {
 		return errors.New("fueling can only be started from paid")
+	}
+	if t.FiscalStatus != FiscalStatusDone {
+		return errors.New("fueling requires a completed fiscal receipt")
 	}
 	if sessionID == "" {
 		return errors.New("fueling session id is required")
@@ -205,7 +210,7 @@ func (t *Transaction) UpdateDispensedLiters(liters float64) error {
 	return nil
 }
 
-// Фиксирует факт отпуска и оставляет Status равным fueling до MarkFiscalizing
+// Фиксирует факт отпуска и оставляет Status равным fueling до CompleteAfterFueling
 func (t *Transaction) CompleteFuelingDispense(actualLiters float64, partial bool) error {
 	if t.Status != TransactionStatusFueling {
 		return errors.New("complete dispense is only allowed during fueling")
@@ -248,28 +253,34 @@ func (t *Transaction) AbortFuelingFromPaid(msg string) error {
 	return nil
 }
 
-// Старт фискализации после этапа fueling
-func (t *Transaction) MarkFiscalizing() error {
-	if t.Status != TransactionStatusFueling {
-		return errors.New("fiscalizing is only allowed from fueling")
+// Старт фискализации сразу после успешной оплаты (paid -> fiscalizing).
+// Чек печатается до отпуска топлива, поэтому исходный статус именно paid.
+func (t *Transaction) BeginFiscalizationFromPaid() error {
+	if t.Status != TransactionStatusPaid {
+		return errors.New("fiscalizing can only start from paid")
+	}
+	if t.FiscalStatus != FiscalStatusNone && t.FiscalStatus != FiscalStatusFailed {
+		return errors.New("fiscalizing already done or in progress")
 	}
 	t.Status = TransactionStatusFiscalizing
 	t.FiscalStatus = FiscalStatusPending
+	t.FiscalError = ""
 	t.UpdatedAt = time.Now()
 	return nil
 }
 
-// Успешный чек записывает номер в ReceiptNumber и переводит в completed
-func (t *Transaction) MarkFiscalized(receipt string) error {
+// Успешный чек, вернуться в paid с FiscalStatus=done. После этого можно стартовать налив.
+func (t *Transaction) MarkPaidFiscalized(receipt string) error {
 	if t.Status != TransactionStatusFiscalizing {
 		return errors.New("fiscalized is only allowed from fiscalizing")
 	}
 	if receipt == "" {
 		return errors.New("receipt number is required")
 	}
-	t.Status = TransactionStatusCompleted
+	t.Status = TransactionStatusPaid
 	t.FiscalStatus = FiscalStatusDone
 	t.ReceiptNumber = receipt
+	t.FiscalError = ""
 	t.UpdatedAt = time.Now()
 	return nil
 }
@@ -282,6 +293,23 @@ func (t *Transaction) MarkFiscalFailed(msg string) error {
 	t.Status = TransactionStatusFailed
 	t.FiscalStatus = FiscalStatusFailed
 	t.FiscalError = msg
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// CompleteAfterFueling переводит транзакцию в completed после того, как налив
+// завершён, а чек уже был напечатан в начале сценария.
+func (t *Transaction) CompleteAfterFueling() error {
+	if t.Status != TransactionStatusFueling {
+		return errors.New("complete after fueling is only allowed from fueling")
+	}
+	if t.FuelingStatus != FuelingStatusCompletedWaitingFiscal {
+		return errors.New("fueling must be completed before transaction can finish")
+	}
+	if t.FiscalStatus != FiscalStatusDone {
+		return errors.New("fiscal status must be done before transaction can finish")
+	}
+	t.Status = TransactionStatusCompleted
 	t.UpdatedAt = time.Now()
 	return nil
 }

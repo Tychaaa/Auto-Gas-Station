@@ -42,9 +42,8 @@ func RegisterTransactionRoutes(r *gin.Engine, transactions *handlers.Transaction
 		tx.PUT("/selection", transactions.UpdateSelection)
 		tx.POST("/payment/start", payments.Start)
 		tx.POST("/payment/status", payments.Status)
-		tx.POST("/fiscalization/start", NotImplemented("fiscalization start"))
-		tx.POST("/fiscalization/complete", NotImplemented("fiscalization complete"))
-		tx.POST("/fiscalization/fail", NotImplemented("fiscalization fail"))
+		// Фискализация запускается автоматически после успешной оплаты (см. PaymentService).
+		// Состояние чека всегда отдается в полях FiscalStatus / ReceiptNumber транзакции.
 	}
 }
 
@@ -73,8 +72,3 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 	}
 }
 
-func NotImplemented(name string) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		c.JSON(nethttp.StatusNotImplemented, gin.H{"error": "not implemented", "route": name})
-	}
-}

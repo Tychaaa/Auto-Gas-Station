@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -32,6 +33,7 @@ type Config struct {
 	AdminUsername       string
 	AdminPassword       string
 	FuelSerial          FuelSerialConfig
+	FiscalKKT           fiscal.Config
 }
 
 type FuelSerialConfig struct {
@@ -63,6 +65,11 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("ADMIN_PASSWORD is required")
 	}
 
+	fiscalKKT, err := loadFiscalKKTFromEnv()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		GinMode:             mode,
 		Port:                envString("PORT", "8080"),
@@ -80,6 +87,7 @@ func Load() (Config, error) {
 			Parity:   envString("FUEL_PARITY", defaultFuelParity),
 			Address:  envInt("FUEL_ADDRESS", defaultFuelAddress),
 		},
+		FiscalKKT: fiscalKKT,
 	}, nil
 }
 
@@ -97,6 +105,30 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envUint32(name string, fallback uint32) uint32 {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseUint(value, 10, 32)
+	if err != nil {
+		return fallback
+	}
+	return uint32(parsed)
+}
+
+func envBool(name string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

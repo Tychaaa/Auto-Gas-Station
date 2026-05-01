@@ -2,12 +2,14 @@ package app
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/adapter/azt"
+	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	adapterfueling "AUTO-GAS-STATION/server/internal/adapter/fueling"
 	"AUTO-GAS-STATION/server/internal/adapter/payment"
 	"AUTO-GAS-STATION/server/internal/config"
@@ -58,8 +60,18 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 
+	fiscalAdapter, err := fiscal.NewKKTAdapter(fiscal.KKTAdapterOptions{
+		Config: cfg.FiscalKKT,
+		Logger: slog.Default(),
+	})
+	if err != nil {
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init fiscal adapter: %w", err)
+	}
+
 	transactionService := service.NewTransactionService(transactionStore, priceService, cfg.SelectionPriceLock)
-	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, cfg.SelectionPriceLock)
+	fiscalService := service.NewFiscalService(transactionStore, fiscalAdapter)
+	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
 	kioskService := service.NewKioskService()
 
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
