@@ -22,7 +22,7 @@ onBeforeUnmount(() => {
     <!-- Шапка админки в стиле основных экранов -->
     <header class="bg-fuel-forest border-b border-fuel-olive/35 py-5 px-10 shrink-0 shadow-sm">
       <div class="max-w-6xl mx-auto relative flex items-center justify-center">
-        <div class="text-admin">
+        <div class="text-admin text-center">
           <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
             Администратор АЗС
           </p>
