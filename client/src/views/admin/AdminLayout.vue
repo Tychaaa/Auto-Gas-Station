@@ -3,17 +3,21 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 
 import { useKioskStateStore } from '@/stores/kioskState'
+import { useWatchdogStateStore } from '@/stores/watchdogState'
 
 const kioskStateStore = useKioskStateStore()
+const watchdogStateStore = useWatchdogStateStore()
 
 // В админке также подгружаем состояние киоска (без оверлея) для индикатора в шапке
 // Это безопасно потому что App.vue в /admin/* не поллит сам
 onMounted(() => {
   kioskStateStore.startPolling()
+  watchdogStateStore.startPolling()
 })
 
 onBeforeUnmount(() => {
   kioskStateStore.stopPolling()
+  watchdogStateStore.stopPolling()
 })
 </script>
 

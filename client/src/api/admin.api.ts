@@ -186,3 +186,27 @@ export async function listAdminTransactions(): Promise<AdminTransactionView[]> {
   const response = await adminGet<AdminTransactionsResponse>('/admin/transactions')
   return response.items ?? []
 }
+
+export type AdminWatchdogMode = 'serial' | 'disabled'
+
+export interface AdminWatchdogStatus {
+  mode: AdminWatchdogMode
+  online: boolean
+  lastHeartbeatAt: string
+  lastHeartbeatAgoMs: number
+  espUptimeMs: number
+  lastError: string
+}
+
+// Возвращает кэшированный snapshot watchdog c сервера. Сервер сам опрашивает
+// ESP32 раз в WATCHDOG_HEARTBEAT_INTERVAL, поэтому ручка дешёвая
+export async function getWatchdogStatus(): Promise<AdminWatchdogStatus> {
+  return adminGet<AdminWatchdogStatus>('/admin/system/watchdog')
+}
+
+// Просит сервер инициировать аппаратную перезагрузку через ESP32
+// Сервер отвечает 202 сразу и в фоне дёргает RESET. Если watchdog disabled —
+// сервер вернёт 503 (ApiClientError со status=503)
+export async function requestSystemReboot(): Promise<void> {
+  await adminPost<{ status: string }>('/admin/system/reboot')
+}
