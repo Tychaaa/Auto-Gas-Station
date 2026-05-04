@@ -22,6 +22,13 @@ const (
 	defaultFuelAddress  = 1
 )
 
+const (
+	defaultWatchdogMode              = "disabled"
+	defaultWatchdogBaud              = 115200
+	defaultWatchdogHeartbeatInterval = "5s"
+	defaultWatchdogExchangeTimeout   = "2s"
+)
+
 type Config struct {
 	GinMode             string
 	Port                string
@@ -32,6 +39,7 @@ type Config struct {
 	AdminUsername       string
 	AdminPassword       string
 	FuelSerial          FuelSerialConfig
+	Watchdog            WatchdogConfig
 }
 
 type FuelSerialConfig struct {
@@ -41,6 +49,16 @@ type FuelSerialConfig struct {
 	StopBits int
 	Parity   string
 	Address  int
+}
+
+// WatchdogConfig — конфигурация ESP32 watchdog. При Mode=="disabled" сервер
+// не открывает COM-порт и работает с заглушкой (см. adapter/watchdog/disabled.go).
+type WatchdogConfig struct {
+	Mode              string
+	Port              string
+	Baud              int
+	HeartbeatInterval time.Duration
+	ExchangeTimeout   time.Duration
 }
 
 func Load() (Config, error) {
@@ -63,6 +81,11 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("ADMIN_PASSWORD is required")
 	}
 
+	watchdog, err := loadWatchdog()
+	if err != nil {
+		return Config{}, err
+	}
+
 	return Config{
 		GinMode:             mode,
 		Port:                envString("PORT", "8080"),
@@ -80,6 +103,47 @@ func Load() (Config, error) {
 			Parity:   envString("FUEL_PARITY", defaultFuelParity),
 			Address:  envInt("FUEL_ADDRESS", defaultFuelAddress),
 		},
+		Watchdog: watchdog,
+	}, nil
+}
+
+func loadWatchdog() (WatchdogConfig, error) {
+	mode := strings.ToLower(strings.TrimSpace(envString("WATCHDOG_MODE", defaultWatchdogMode)))
+	switch mode {
+	case "serial", "disabled":
+	default:
+		return WatchdogConfig{}, fmt.Errorf("WATCHDOG_MODE must be 'serial' or 'disabled', got %q", mode)
+	}
+
+	heartbeatRaw := envString("WATCHDOG_HEARTBEAT_INTERVAL", defaultWatchdogHeartbeatInterval)
+	heartbeat, err := time.ParseDuration(heartbeatRaw)
+	if err != nil {
+		return WatchdogConfig{}, fmt.Errorf("invalid WATCHDOG_HEARTBEAT_INTERVAL: %w", err)
+	}
+	if heartbeat <= 0 {
+		return WatchdogConfig{}, fmt.Errorf("WATCHDOG_HEARTBEAT_INTERVAL must be > 0")
+	}
+
+	timeoutRaw := envString("WATCHDOG_EXCHANGE_TIMEOUT", defaultWatchdogExchangeTimeout)
+	timeout, err := time.ParseDuration(timeoutRaw)
+	if err != nil {
+		return WatchdogConfig{}, fmt.Errorf("invalid WATCHDOG_EXCHANGE_TIMEOUT: %w", err)
+	}
+	if timeout <= 0 {
+		return WatchdogConfig{}, fmt.Errorf("WATCHDOG_EXCHANGE_TIMEOUT must be > 0")
+	}
+
+	port := envString("WATCHDOG_PORT", "")
+	if mode == "serial" && port == "" {
+		return WatchdogConfig{}, fmt.Errorf("WATCHDOG_PORT is required when WATCHDOG_MODE=serial")
+	}
+
+	return WatchdogConfig{
+		Mode:              mode,
+		Port:              port,
+		Baud:              envInt("WATCHDOG_BAUD", defaultWatchdogBaud),
+		HeartbeatInterval: heartbeat,
+		ExchangeTimeout:   timeout,
 	}, nil
 }
 
