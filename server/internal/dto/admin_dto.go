@@ -25,3 +25,15 @@ type AdminTransactionView struct {
 	ReceiptNumber string  `json:"receiptNumber"`
 	ErrorMessage  string  `json:"errorMessage"`
 }
+
+// WatchdogStatusView — представление состояния ESP32 watchdog для админки.
+// Поле Mode принимает значения "serial" или "disabled". Online=false при
+// потере связи с ESP32 (ESP32 перезагрузился, не подключён, не питается).
+type WatchdogStatusView struct {
+	Mode               string `json:"mode"`
+	Online             bool   `json:"online"`
+	LastHeartbeatAt    string `json:"lastHeartbeatAt"`
+	LastHeartbeatAgoMs int64  `json:"lastHeartbeatAgoMs"`
+	EspUptimeMs        int64  `json:"espUptimeMs"`
+	LastError          string `json:"lastError"`
+}
