@@ -94,3 +94,17 @@ export async function getFuelingProgress(transactionId: string): Promise<Fueling
   const response = await httpPost<unknown>(`/transactions/${encodeTransactionId(transactionId)}/fueling/progress`)
   return parseFuelingEnvelopeTransaction(response)
 }
+
+export interface InactivityTimeoutResult {
+  cleared: boolean
+  status: string
+  reason?: string
+}
+
+// Сообщает серверу о таймауте неактивности: сервер решает, можно ли безопасно
+// завершить транзакцию. Если cleared=false, клиент не должен сбрасывать поток.
+export async function reportInactivityTimeout(transactionId: string): Promise<InactivityTimeoutResult> {
+  return httpPost<InactivityTimeoutResult>(
+    `/transactions/${encodeTransactionId(transactionId)}/inactivity-timeout`,
+  )
+}

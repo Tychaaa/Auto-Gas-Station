@@ -7,6 +7,7 @@ import {
   getFuelingProgress,
   getPaymentStatus,
   getTransaction,
+  reportInactivityTimeout,
   startFueling,
   startPayment,
   updateSelection,
@@ -409,6 +410,29 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Обрабатывает таймаут неактивности: спрашивает сервер, можно ли безопасно
+  // завершить текущую транзакцию. Возвращает true, если клиент может идти на главный экран.
+  async function handleInactivityTimeout(): Promise<boolean> {
+    const currentId = transactionId.value
+    if (!currentId) {
+      resetFlow()
+      return true
+    }
+    try {
+      const result = await reportInactivityTimeout(currentId)
+      if (result.cleared) {
+        resetFlow()
+        return true
+      }
+      // Транзакция в небезопасном состоянии (оплата/налив/фискализация) — не прерывать
+      return false
+    } catch {
+      // Сеть недоступна — безопасный fallback: очистить UI, сервер защитит сам
+      resetFlow()
+      return true
+    }
+  }
+
   // Полностью сбрасывает сценарий транзакции
   function resetFlow(): void {
     stopPaymentPolling()
@@ -470,5 +494,6 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     stopFuelingPolling,
     resetForPaymentRetry,
     resetFlow,
+    handleInactivityTimeout,
   }
 })

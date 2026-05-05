@@ -3,10 +3,13 @@ import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
 import MaintenanceView from '@/views/MaintenanceView.vue'
+import { useInactivityTimeout } from '@/composables/useInactivityTimeout'
 import { useKioskStateStore } from '@/stores/kioskState'
 
 const route = useRoute()
 const kioskStateStore = useKioskStateStore()
+
+useInactivityTimeout()
 
 // Админские маршруты не подпадают под режим тех работ
 // Админ сам управляет этим режимом кнопкой в панели
