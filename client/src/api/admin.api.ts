@@ -204,9 +204,9 @@ export async function getWatchdogStatus(): Promise<AdminWatchdogStatus> {
   return adminGet<AdminWatchdogStatus>('/admin/system/watchdog')
 }
 
-// Просит сервер инициировать аппаратную перезагрузку через ESP32
-// Сервер отвечает 202 сразу и в фоне дёргает RESET. Если watchdog disabled —
-// сервер вернёт 503 (ApiClientError со status=503)
-export async function requestSystemReboot(): Promise<void> {
-  await adminPost<{ status: string }>('/admin/system/reboot')
+export type AdminSystemRebootMethod = 'soft' | 'hard'
+
+// soft — обычная перезагрузка командой ОС, hard — аварийный reset через ESP32.
+export async function requestSystemReboot(method: AdminSystemRebootMethod): Promise<void> {
+  await adminPost<{ status: string; method: string }>('/admin/system/reboot', { method })
 }
