@@ -45,20 +45,32 @@ func (h *WatchdogHandler) Status(c *gin.Context) {
 	c.JSON(nethttp.StatusOK, view)
 }
 
-// Reboot — POST /api/v1/admin/system/reboot. Отвечает сразу 202 и в фоне
-// инициирует перезагрузку через ESP32. На случай ошибки сам факт всё
-// равно остаётся в логах сервера.
+// Reboot — POST /api/v1/admin/system/reboot.
+// method=soft: reboot by OS command
+// method=hard: emergency reset via ESP32 watchdog.
 func (h *WatchdogHandler) Reboot(c *gin.Context) {
-	if h.service == nil || h.service.IsDisabled() {
-		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "watchdog is not configured"})
+	if h.service == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "watchdog service is not available"})
+		return
+	}
+
+	var req dto.AdminSystemRebootRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request body: " + err.Error()})
+		return
+	}
+
+	kind := service.RebootKind(req.Method)
+	if kind == service.RebootKindHard && h.service.IsDisabled() {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "ESP32 watchdog is not configured"})
 		return
 	}
 
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), rebootContextTimeout)
 		defer cancel()
-		_ = h.service.RequestReset(ctx)
+		_ = h.service.RequestReboot(ctx, kind)
 	}()
 
-	c.JSON(nethttp.StatusAccepted, gin.H{"status": "reboot requested"})
+	c.JSON(nethttp.StatusAccepted, gin.H{"status": "reboot requested", "method": req.Method})
 }

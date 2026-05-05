@@ -3,7 +3,10 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
+	"os/exec"
+	"runtime"
 	"sync"
 	"time"
 
@@ -60,6 +63,13 @@ type WatchdogConfig struct {
 const (
 	defaultHeartbeatInterval = 5 * time.Second
 	defaultRebootGrace       = 1 * time.Second
+)
+
+type RebootKind string
+
+const (
+	RebootKindSoft RebootKind = "soft"
+	RebootKindHard RebootKind = "hard"
 )
 
 // NewWatchdogService создаёт сервис, но не запускает фоновый цикл.
@@ -177,17 +187,19 @@ func (s *WatchdogService) Snapshot() WatchdogSnapshot {
 	return snapshot
 }
 
-// RequestReset запускает удалённую перезагрузку: сначала переводит киоск
-// в режим тех. работ (чтобы UI на физическом мониторе показал оверлей),
-// ждёт rebootGrace и только потом отправляет RESET на ESP32.
-// Возвращает ErrWatchdogDisabled если адаптер — заглушка.
-func (s *WatchdogService) RequestReset(ctx context.Context) error {
-	if s.adapter == nil || s.mode != WatchdogModeSerial {
-		return watchdog.ErrWatchdogDisabled
+// RequestReboot handles both reboot modes:
+// soft — regular OS reboot command; hard — emergency ESP32 reset.
+func (s *WatchdogService) RequestReboot(ctx context.Context, kind RebootKind) error {
+	if kind != RebootKindSoft && kind != RebootKindHard {
+		return errors.New("invalid reboot kind")
 	}
 
+	reason := "перезагрузка терминала (ОС)"
+	if kind == RebootKindHard {
+		reason = "аварийная перезагрузка терминала (ESP32)"
+	}
 	if s.kiosk != nil {
-		s.kiosk.SetMaintenance(true, "перезагрузка терминала")
+		s.kiosk.SetMaintenance(true, reason)
 	}
 
 	select {
@@ -196,11 +208,44 @@ func (s *WatchdogService) RequestReset(ctx context.Context) error {
 	case <-time.After(s.rebootGrace):
 	}
 
+	if kind == RebootKindSoft {
+		if err := s.runSoftReboot(ctx); err != nil {
+			log.Printf("soft reboot failed: %v", err)
+			return err
+		}
+		log.Printf("soft reboot scheduled")
+		return nil
+	}
+
+	if s.adapter == nil || s.mode != WatchdogModeSerial {
+		return watchdog.ErrWatchdogDisabled
+	}
 	if err := s.adapter.RequestReset(ctx); err != nil {
-		log.Printf("watchdog reset failed: %v", err)
+		log.Printf("watchdog hard reset failed: %v", err)
 		return err
 	}
-	log.Printf("watchdog reset requested via ESP32")
+	log.Printf("hard reboot requested via ESP32")
+	return nil
+}
+
+func (s *WatchdogService) RequestReset(ctx context.Context) error {
+	return s.RequestReboot(ctx, RebootKindHard)
+}
+
+func (s *WatchdogService) runSoftReboot(ctx context.Context) error {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "windows":
+		// /t 10 — даёт UI 10 секунд показать оверлей перед перезагрузкой.
+		// /f — принудительно закрывает приложения без предупреждения.
+		cmd = exec.CommandContext(ctx, "shutdown.exe", "/r", "/t", "10", "/f")
+	default:
+		cmd = exec.CommandContext(ctx, "shutdown", "-r", "now")
+	}
+
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("shutdown failed: %w; output: %q", err, string(out))
+	}
 	return nil
 }
 

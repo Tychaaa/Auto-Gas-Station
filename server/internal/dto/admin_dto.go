@@ -37,3 +37,7 @@ type WatchdogStatusView struct {
 	EspUptimeMs        int64  `json:"espUptimeMs"`
 	LastError          string `json:"lastError"`
 }
+
+type AdminSystemRebootRequest struct {
+	Method string `json:"method" binding:"required,oneof=soft hard"`
+}
