@@ -24,16 +24,19 @@ const (
 )
 
 type Config struct {
-	GinMode             string
-	Port                string
-	AllowedOrigins      []string
-	PricingDBPath       string
-	SelectionPriceLock  time.Duration
-	VendotekMockBaseURL string
-	AdminUsername       string
-	AdminPassword       string
-	FuelSerial          FuelSerialConfig
-	FiscalKKT           fiscal.Config
+	GinMode              string
+	Port                 string
+	AllowedOrigins       []string
+	PricingDBPath        string
+	SelectionPriceLock   time.Duration
+	InactivityTimeout    time.Duration
+	InactivitySweepInterval time.Duration
+	InactivitySweepEnabled  bool
+	VendotekMockBaseURL  string
+	AdminUsername        string
+	AdminPassword        string
+	FuelSerial           FuelSerialConfig
+	FiscalKKT            fiscal.Config
 }
 
 type FuelSerialConfig struct {
@@ -53,6 +56,18 @@ func Load() (Config, error) {
 	}
 	if lockTTL <= 0 {
 		return Config{}, fmt.Errorf("SELECTION_PRICE_LOCK_TTL must be > 0")
+	}
+
+	inactivityTTLRaw := envString("TRANSACTION_IDLE_TIMEOUT", "10m")
+	inactivityTTL, err := time.ParseDuration(inactivityTTLRaw)
+	if err != nil || inactivityTTL <= 0 {
+		inactivityTTL = 10 * time.Minute
+	}
+
+	sweepIntervalRaw := envString("TRANSACTION_IDLE_SWEEP_INTERVAL", "2m")
+	sweepInterval, err := time.ParseDuration(sweepIntervalRaw)
+	if err != nil || sweepInterval <= 0 {
+		sweepInterval = 2 * time.Minute
 	}
 
 	mode := envString("GIN_MODE", gin.DebugMode)
@@ -75,8 +90,11 @@ func Load() (Config, error) {
 		Port:                envString("PORT", "8080"),
 		AllowedOrigins:      resolveAllowedOrigins(mode),
 		PricingDBPath:       envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
-		SelectionPriceLock:  lockTTL,
-		VendotekMockBaseURL: envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
+		SelectionPriceLock:      lockTTL,
+		InactivityTimeout:       inactivityTTL,
+		InactivitySweepInterval: sweepInterval,
+		InactivitySweepEnabled:  envBool("TRANSACTION_IDLE_SWEEP_ENABLED", true),
+		VendotekMockBaseURL:     envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
 		AdminUsername:       adminUsername,
 		AdminPassword:       adminPassword,
 		FuelSerial: FuelSerialConfig{

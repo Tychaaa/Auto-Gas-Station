@@ -40,6 +40,7 @@ func RegisterTransactionRoutes(r *gin.Engine, transactions *handlers.Transaction
 	tx := v1.Group("/transactions/:id")
 	{
 		tx.PUT("/selection", transactions.UpdateSelection)
+		tx.POST("/inactivity-timeout", transactions.InactivityTimeout)
 		tx.POST("/payment/start", payments.Start)
 		tx.POST("/payment/status", payments.Status)
 		// Фискализация запускается автоматически после успешной оплаты (см. PaymentService).

@@ -16,6 +16,7 @@ const (
 	TransactionStatusFiscalizing    TransactionStatus = "fiscalizing"
 	TransactionStatusCompleted      TransactionStatus = "completed"
 	TransactionStatusFailed         TransactionStatus = "failed"
+	TransactionStatusAbandoned      TransactionStatus = "abandoned"
 )
 
 // Результат и стадия оплаты отдельно от этапа транзакции
@@ -64,6 +65,7 @@ type Transaction struct {
 	ReceiptNumber       string
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
+	AbandonReason       string
 	// Поля топливного контура от старта налива до его завершения
 	FuelingStatus    FuelingStatus
 	FuelingError     string
@@ -293,6 +295,18 @@ func (t *Transaction) MarkFiscalFailed(msg string) error {
 	t.Status = TransactionStatusFailed
 	t.FiscalStatus = FiscalStatusFailed
 	t.FiscalError = msg
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// Abandon переводит транзакцию в abandoned только из состояния selection.
+// Используется при таймауте неактивности до начала оплаты.
+func (t *Transaction) Abandon(reason string) error {
+	if t.Status != TransactionStatusSelection {
+		return errors.New("transaction can only be abandoned from selection state")
+	}
+	t.Status = TransactionStatusAbandoned
+	t.AbandonReason = reason
 	t.UpdatedAt = time.Now()
 	return nil
 }

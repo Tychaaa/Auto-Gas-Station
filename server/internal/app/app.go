@@ -1,6 +1,7 @@
 package app
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -70,6 +71,9 @@ func New(cfg Config) (*App, error) {
 	}
 
 	transactionService := service.NewTransactionService(transactionStore, priceService, cfg.SelectionPriceLock)
+	if cfg.InactivitySweepEnabled {
+		transactionService.StartSweeper(context.Background(), cfg.InactivityTimeout, cfg.InactivitySweepInterval)
+	}
 	fiscalService := service.NewFiscalService(transactionStore, fiscalAdapter)
 	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
 	kioskService := service.NewKioskService()
