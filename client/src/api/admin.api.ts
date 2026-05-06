@@ -210,3 +210,18 @@ export type AdminSystemRebootMethod = 'soft' | 'hard'
 export async function requestSystemReboot(method: AdminSystemRebootMethod): Promise<void> {
   await adminPost<{ status: string; method: string }>('/admin/system/reboot', { method })
 }
+
+export interface AdminDispenserCheckResult {
+  online: boolean
+  statusCode?: string
+  reasonCode?: string
+  providerStatus?: string
+  dispensedLiters?: number
+  completed?: boolean
+  error?: string
+  checkedAt: string
+}
+
+export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
+  return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
+}
