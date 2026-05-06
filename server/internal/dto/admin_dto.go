@@ -41,3 +41,14 @@ type WatchdogStatusView struct {
 type AdminSystemRebootRequest struct {
 	Method string `json:"method" binding:"required,oneof=soft hard"`
 }
+
+type EquipmentDispenserCheckView struct {
+	Online          bool      `json:"online"`
+	StatusCode      string    `json:"statusCode,omitempty"`
+	ReasonCode      string    `json:"reasonCode,omitempty"`
+	ProviderStatus  string    `json:"providerStatus,omitempty"`
+	DispensedLiters float64   `json:"dispensedLiters,omitempty"`
+	Completed       bool      `json:"completed,omitempty"`
+	Error           string    `json:"error,omitempty"`
+	CheckedAt       time.Time `json:"checkedAt"`
+}

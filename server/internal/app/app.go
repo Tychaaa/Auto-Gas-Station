@@ -83,6 +83,7 @@ func New(cfg Config) (*App, error) {
 	adminHandler := handlers.NewAdminHandler(priceService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
+	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,
@@ -93,6 +94,7 @@ func New(cfg Config) (*App, error) {
 		adminHandler,
 		kioskHandler,
 		watchdogHandler,
+		equipmentHandler,
 	)
 	server := &http.Server{
 		Addr:              "127.0.0.1:" + cfg.Port,
