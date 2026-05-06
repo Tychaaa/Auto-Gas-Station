@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -30,16 +31,20 @@ const (
 )
 
 type Config struct {
-	GinMode             string
-	Port                string
-	AllowedOrigins      []string
-	PricingDBPath       string
-	SelectionPriceLock  time.Duration
-	VendotekMockBaseURL string
-	AdminUsername       string
-	AdminPassword       string
-	FuelSerial          FuelSerialConfig
-	Watchdog            WatchdogConfig
+	GinMode              string
+	Port                 string
+	AllowedOrigins       []string
+	PricingDBPath        string
+	SelectionPriceLock   time.Duration
+	InactivityTimeout    time.Duration
+	InactivitySweepInterval time.Duration
+	InactivitySweepEnabled  bool
+	VendotekMockBaseURL  string
+	AdminUsername        string
+	AdminPassword        string
+	FuelSerial           FuelSerialConfig
+	FiscalKKT            fiscal.Config
+  Watchdog            WatchdogConfig
 }
 
 type FuelSerialConfig struct {
@@ -71,6 +76,18 @@ func Load() (Config, error) {
 		return Config{}, fmt.Errorf("SELECTION_PRICE_LOCK_TTL must be > 0")
 	}
 
+	inactivityTTLRaw := envString("TRANSACTION_IDLE_TIMEOUT", "10m")
+	inactivityTTL, err := time.ParseDuration(inactivityTTLRaw)
+	if err != nil || inactivityTTL <= 0 {
+		inactivityTTL = 10 * time.Minute
+	}
+
+	sweepIntervalRaw := envString("TRANSACTION_IDLE_SWEEP_INTERVAL", "2m")
+	sweepInterval, err := time.ParseDuration(sweepIntervalRaw)
+	if err != nil || sweepInterval <= 0 {
+		sweepInterval = 2 * time.Minute
+	}
+
 	mode := envString("GIN_MODE", gin.DebugMode)
 	adminUsername := envString("ADMIN_USERNAME", "")
 	adminPassword := envString("ADMIN_PASSWORD", "")
@@ -82,6 +99,7 @@ func Load() (Config, error) {
 	}
 
 	watchdog, err := loadWatchdog()
+	fiscalKKT, err := loadFiscalKKTFromEnv()
 	if err != nil {
 		return Config{}, err
 	}
@@ -91,8 +109,11 @@ func Load() (Config, error) {
 		Port:                envString("PORT", "8080"),
 		AllowedOrigins:      resolveAllowedOrigins(mode),
 		PricingDBPath:       envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
-		SelectionPriceLock:  lockTTL,
-		VendotekMockBaseURL: envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
+		SelectionPriceLock:      lockTTL,
+		InactivityTimeout:       inactivityTTL,
+		InactivitySweepInterval: sweepInterval,
+		InactivitySweepEnabled:  envBool("TRANSACTION_IDLE_SWEEP_ENABLED", true),
+		VendotekMockBaseURL:     envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
 		AdminUsername:       adminUsername,
 		AdminPassword:       adminPassword,
 		FuelSerial: FuelSerialConfig{
@@ -144,6 +165,7 @@ func loadWatchdog() (WatchdogConfig, error) {
 		Baud:              envInt("WATCHDOG_BAUD", defaultWatchdogBaud),
 		HeartbeatInterval: heartbeat,
 		ExchangeTimeout:   timeout,
+		FiscalKKT: fiscalKKT,
 	}, nil
 }
 
@@ -161,6 +183,30 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	parsed, err := strconv.Atoi(value)
+	if err != nil {
+		return fallback
+	}
+	return parsed
+}
+
+func envUint32(name string, fallback uint32) uint32 {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseUint(value, 10, 32)
+	if err != nil {
+		return fallback
+	}
+	return uint32(parsed)
+}
+
+func envBool(name string, fallback bool) bool {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parsed, err := strconv.ParseBool(value)
 	if err != nil {
 		return fallback
 	}

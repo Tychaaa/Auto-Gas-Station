@@ -178,7 +178,12 @@ func (h *FuelingHandler) Progress(c *gin.Context) {
 				}
 			}
 			if tx.FuelingStatus == model.FuelingStatusDispensing {
-				return tx.CompleteFuelingDispense(statusResult.DispensedLiters, statusResult.Partial)
+				if err := tx.CompleteFuelingDispense(statusResult.DispensedLiters, statusResult.Partial); err != nil {
+					return err
+				}
+			}
+			if tx.FuelingStatus == model.FuelingStatusCompletedWaitingFiscal && tx.FiscalStatus == model.FiscalStatusDone {
+				return tx.CompleteAfterFueling()
 			}
 		}
 		return nil

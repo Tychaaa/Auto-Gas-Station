@@ -66,6 +66,17 @@ func (s *TransactionStore) Update(id string, apply func(*model.Transaction) erro
 	return cloneTransaction(&next), nil
 }
 
+func (s *TransactionStore) ListAll() []*model.Transaction {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	result := make([]*model.Transaction, 0, len(s.items))
+	for _, tx := range s.items {
+		result = append(result, cloneTransaction(tx))
+	}
+	return result
+}
+
 func (s *TransactionStore) nextID() string {
 	n := atomic.AddUint64(&s.counter, 1)
 	return fmt.Sprintf("tx_%d_%06d", time.Now().UnixNano(), n)

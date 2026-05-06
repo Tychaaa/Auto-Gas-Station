@@ -20,11 +20,24 @@ type PaymentService struct {
 	store        *repository.TransactionStore
 	prices       *PriceService
 	payments     payment.Adapter
+	fiscal       *FiscalService
 	priceLockTTL time.Duration
 }
 
-func NewPaymentService(store *repository.TransactionStore, prices *PriceService, payments payment.Adapter, priceLockTTL time.Duration) *PaymentService {
-	return &PaymentService{store: store, prices: prices, payments: payments, priceLockTTL: priceLockTTL}
+func NewPaymentService(
+	store *repository.TransactionStore,
+	prices *PriceService,
+	payments payment.Adapter,
+	fiscalService *FiscalService,
+	priceLockTTL time.Duration,
+) *PaymentService {
+	return &PaymentService{
+		store:        store,
+		prices:       prices,
+		payments:     payments,
+		fiscal:       fiscalService,
+		priceLockTTL: priceLockTTL,
+	}
 }
 
 func (s *PaymentService) Start(ctx context.Context, id string) (*model.Transaction, error) {
@@ -92,7 +105,7 @@ func (s *PaymentService) Start(ctx context.Context, id string) (*model.Transacti
 	if err != nil {
 		return nil, err
 	}
-	return updated, nil
+	return s.maybeFiscalizeAfterPayment(ctx, updated)
 }
 
 func (s *PaymentService) SyncStatus(ctx context.Context, id string) (*model.Transaction, error) {
@@ -111,9 +124,39 @@ func (s *PaymentService) SyncStatus(ctx context.Context, id string) (*model.Tran
 	if err != nil {
 		return nil, err
 	}
-	return s.store.Update(id, func(tx *model.Transaction) error {
+	updated, err := s.store.Update(id, func(tx *model.Transaction) error {
 		return applyPaymentStatusToTransaction(tx, sessionStatus)
 	})
+	if err != nil {
+		return nil, err
+	}
+	return s.maybeFiscalizeAfterPayment(ctx, updated)
+}
+
+// maybeFiscalizeAfterPayment запускает фискальный чек, если оплата только что
+// получила статус approved и FiscalService подключён. Сетевой вызов к ККТ
+// проходит вне TransactionStore.Update.
+func (s *PaymentService) maybeFiscalizeAfterPayment(ctx context.Context, tx *model.Transaction) (*model.Transaction, error) {
+	if tx == nil {
+		return nil, nil
+	}
+	if s.fiscal == nil {
+		return tx, nil
+	}
+	if tx.Status != model.TransactionStatusPaid {
+		return tx, nil
+	}
+	if tx.FiscalStatus != model.FiscalStatusNone && tx.FiscalStatus != model.FiscalStatusFailed {
+		return tx, nil
+	}
+	updated, err := s.fiscal.FiscalizePaid(ctx, tx.ID)
+	if err != nil {
+		if updated != nil {
+			return updated, err
+		}
+		return tx, err
+	}
+	return updated, nil
 }
 
 func applyPaymentStatusToTransaction(tx *model.Transaction, status payment.StatusResult) error {
