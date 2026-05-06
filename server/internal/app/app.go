@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"log"
 	"log/slog"
 	"net/http"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	adapterfueling "AUTO-GAS-STATION/server/internal/adapter/fueling"
 	"AUTO-GAS-STATION/server/internal/adapter/payment"
+	"AUTO-GAS-STATION/server/internal/adapter/watchdog"
 	"AUTO-GAS-STATION/server/internal/config"
 	"AUTO-GAS-STATION/server/internal/repository"
 	"AUTO-GAS-STATION/server/internal/service"
@@ -21,8 +23,10 @@ import (
 )
 
 type App struct {
-	config Config
-	server *http.Server
+	config          Config
+	server          *http.Server
+	watchdogService *service.WatchdogService
+	watchdogAdapter watchdog.Adapter
 }
 
 type Config = config.Config
@@ -78,11 +82,24 @@ func New(cfg Config) (*App, error) {
 	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
 	kioskService := service.NewKioskService()
 
+	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
+	if err != nil {
+		_ = priceRepo.Close()
+		return nil, err
+	}
+	watchdogService := service.NewWatchdogService(watchdogAdapter, kioskService, service.WatchdogConfig{
+		Mode:              service.WatchdogMode(cfg.Watchdog.Mode),
+		HeartbeatInterval: cfg.Watchdog.HeartbeatInterval,
+	})
+	watchdogService.Start()
+
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	fuelingHandler := handlers.NewFuelingHandler(transactionStore, fuelingAdapter)
 	adminHandler := handlers.NewAdminHandler(priceService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
+	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
+	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,
@@ -92,6 +109,8 @@ func New(cfg Config) (*App, error) {
 		fuelingHandler,
 		adminHandler,
 		kioskHandler,
+		watchdogHandler,
+		equipmentHandler,
 	)
 	server := &http.Server{
 		Addr:              "127.0.0.1:" + cfg.Port,
@@ -101,7 +120,12 @@ func New(cfg Config) (*App, error) {
 		WriteTimeout:      10 * time.Second,
 		IdleTimeout:       30 * time.Second,
 	}
-	return &App{config: cfg, server: server}, nil
+	return &App{
+		config:          cfg,
+		server:          server,
+		watchdogService: watchdogService,
+		watchdogAdapter: watchdogAdapter,
+	}, nil
 }
 
 func (a *App) Run() error {
@@ -113,4 +137,24 @@ func (a *App) Run() error {
 
 func (a *App) Addr() string {
 	return a.server.Addr
+}
+
+// buildWatchdogAdapter создаёт реальный SerialAdapter если WATCHDOG_MODE=serial,
+// иначе — заглушку Disabled. Ошибка открытия порта не валит приложение:
+// логируем и проваливаемся в Disabled, чтобы можно было запускаться без
+// подключённой ESP32 во время разработки и обслуживания.
+func buildWatchdogAdapter(cfg config.WatchdogConfig) (watchdog.Adapter, error) {
+	if cfg.Mode != "serial" {
+		return watchdog.NewDisabled(), nil
+	}
+	adapter, err := watchdog.NewSerialAdapter(watchdog.SerialConfig{
+		Port:            cfg.Port,
+		Baud:            cfg.Baud,
+		ExchangeTimeout: cfg.ExchangeTimeout,
+	})
+	if err != nil {
+		log.Printf("watchdog serial adapter unavailable, falling back to disabled: %v", err)
+		return watchdog.NewDisabled(), nil
+	}
+	return adapter, nil
 }

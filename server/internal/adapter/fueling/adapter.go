@@ -5,6 +5,15 @@ import "context"
 type Adapter interface {
 	StartFueling(ctx context.Context, input StartInput) (StartResult, error)
 	GetFuelingStatus(ctx context.Context, input StatusInput) (StatusResult, error)
+	Check(ctx context.Context) (CheckResult, error)
+}
+
+type CheckResult struct {
+	StatusCode      string
+	ReasonCode      string
+	ProviderStatus  string
+	DispensedLiters float64
+	Completed       bool
 }
 
 type StartInput struct {

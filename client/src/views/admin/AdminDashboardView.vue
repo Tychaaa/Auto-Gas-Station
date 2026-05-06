@@ -14,7 +14,6 @@ const isMaintenance = computed(() => kioskStateStore.maintenance)
 const currentReason = computed(() => kioskStateStore.reason)
 const updatedAt = computed(() => kioskStateStore.state?.updatedAt ?? '')
 
-// Переключает режим на противоположный и обновляет стор актуальным состоянием
 async function toggleMaintenance(): Promise<void> {
   isSubmitting.value = true
   submitError.value = null
@@ -139,5 +138,6 @@ function formatTimestamp(iso: string): string {
         {{ submitError }}
       </p>
     </div>
+
   </section>
 </template>

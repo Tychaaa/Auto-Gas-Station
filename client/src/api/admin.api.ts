@@ -186,3 +186,42 @@ export async function listAdminTransactions(): Promise<AdminTransactionView[]> {
   const response = await adminGet<AdminTransactionsResponse>('/admin/transactions')
   return response.items ?? []
 }
+
+export type AdminWatchdogMode = 'serial' | 'disabled'
+
+export interface AdminWatchdogStatus {
+  mode: AdminWatchdogMode
+  online: boolean
+  lastHeartbeatAt: string
+  lastHeartbeatAgoMs: number
+  espUptimeMs: number
+  lastError: string
+}
+
+// Возвращает кэшированный snapshot watchdog c сервера. Сервер сам опрашивает
+// ESP32 раз в WATCHDOG_HEARTBEAT_INTERVAL, поэтому ручка дешёвая
+export async function getWatchdogStatus(): Promise<AdminWatchdogStatus> {
+  return adminGet<AdminWatchdogStatus>('/admin/system/watchdog')
+}
+
+export type AdminSystemRebootMethod = 'soft' | 'hard'
+
+// soft — обычная перезагрузка командой ОС, hard — аварийный reset через ESP32.
+export async function requestSystemReboot(method: AdminSystemRebootMethod): Promise<void> {
+  await adminPost<{ status: string; method: string }>('/admin/system/reboot', { method })
+}
+
+export interface AdminDispenserCheckResult {
+  online: boolean
+  statusCode?: string
+  reasonCode?: string
+  providerStatus?: string
+  dispensedLiters?: number
+  completed?: boolean
+  error?: string
+  checkedAt: string
+}
+
+export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
+  return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
+}

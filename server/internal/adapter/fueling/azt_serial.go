@@ -122,6 +122,26 @@ func (a *AZTSerialAdapter) GetFuelingStatus(ctx context.Context, input StatusInp
 	return result, nil
 }
 
+func (a *AZTSerialAdapter) Check(ctx context.Context) (CheckResult, error) {
+	client, err := a.newClient()
+	if err != nil {
+		return CheckResult{}, fmt.Errorf("open dispenser port: %w", err)
+	}
+	defer client.Close()
+
+	snapshot, err := client.GetStatus(ctx)
+	if err != nil {
+		return CheckResult{}, fmt.Errorf("get dispenser status: %w", err)
+	}
+	return CheckResult{
+		StatusCode:      string([]byte{snapshot.StatusCode}),
+		ReasonCode:      string([]byte{snapshot.ReasonCode}),
+		ProviderStatus:  snapshot.ProviderStatus,
+		DispensedLiters: snapshot.DispensedLiters,
+		Completed:       snapshot.Completed,
+	}, nil
+}
+
 func (a *AZTSerialAdapter) newClient() (*azt.MasterClient, error) {
 	transport, err := azt.NewWindowsSerialTransport(a.config)
 	if err != nil {

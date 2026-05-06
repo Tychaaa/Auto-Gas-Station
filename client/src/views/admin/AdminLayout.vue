@@ -3,17 +3,17 @@ import { onBeforeUnmount, onMounted } from 'vue'
 import { RouterLink, RouterView } from 'vue-router'
 
 import { useKioskStateStore } from '@/stores/kioskState'
+import { useWatchdogStateStore } from '@/stores/watchdogState'
 
 const kioskStateStore = useKioskStateStore()
+const watchdogStateStore = useWatchdogStateStore()
 
-// В админке также подгружаем состояние киоска (без оверлея) для индикатора в шапке
-// Это безопасно потому что App.vue в /admin/* не поллит сам
 onMounted(() => {
-  kioskStateStore.startPolling()
+  watchdogStateStore.startPolling()
 })
 
 onBeforeUnmount(() => {
-  kioskStateStore.stopPolling()
+  watchdogStateStore.stopPolling()
 })
 </script>
 
@@ -21,18 +21,18 @@ onBeforeUnmount(() => {
   <div class="min-h-screen flex flex-col bg-fuel-cream">
     <!-- Шапка админки в стиле основных экранов -->
     <header class="bg-fuel-forest border-b border-fuel-olive/35 py-5 px-10 shrink-0 shadow-sm">
-      <div class="max-w-6xl mx-auto flex items-center justify-between gap-6">
-        <div class="text-left">
+      <div class="max-w-6xl mx-auto relative flex items-center justify-center">
+        <div class="text-admin text-center">
           <p class="font-karla text-xs text-white/80 tracking-widest uppercase mb-1">
             Администратор АЗС
           </p>
-          <h1 class="font-rubik font-bold text-2xl text-white leading-tight">
+          <h1 class="font-rubik font-bold text-3xl text-white leading-tight">
             Панель управления
           </h1>
         </div>
 
         <!-- Индикатор текущего режима киоска -->
-        <div class="flex items-center gap-3 font-karla text-sm">
+        <div class="absolute right-0 flex items-center gap-3 font-karla text-sm">
           <span
             class="inline-flex h-3 w-3 rounded-full"
             :class="kioskStateStore.maintenance ? 'bg-amber-400 animate-pulse' : 'bg-fuel-lime'"
@@ -53,6 +53,7 @@ onBeforeUnmount(() => {
             { to: '/admin', label: 'Режим работы', exact: true },
             { to: '/admin/prices', label: 'Цены', exact: false },
             { to: '/admin/transactions', label: 'Транзакции', exact: false },
+            { to: '/admin/equipment', label: 'Оборудование', exact: false },
           ]"
           :key="link.to"
           :to="link.to"
@@ -72,11 +73,5 @@ onBeforeUnmount(() => {
         <RouterView />
       </div>
     </main>
-
-    <footer class="bg-fuel-forest/95 py-3 px-10 text-center shrink-0">
-      <p class="font-karla text-xs text-white/60">
-        Закройте вкладку, чтобы выйти из админки
-      </p>
-    </footer>
   </div>
 </template>

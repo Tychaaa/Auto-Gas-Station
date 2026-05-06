@@ -233,10 +233,10 @@ onMounted(async () => {
           <span class="font-karla text-sm text-fuel-forest">{{ fuelType }}, ₽/л</span>
           <input
             v-model="formState.prices[fuelType]"
-            type="number"
-            step="0.01"
-            min="0.01"
+            type="text"
+            inputmode="decimal"
             required
+            placeholder="0.00"
             class="rounded-lg border border-fuel-olive/40 bg-fuel-cream/60 px-4 py-3
                    font-rubik font-semibold text-lg text-fuel-forest
                    focus:outline-none focus:ring-2 focus:ring-fuel-lime focus:border-fuel-lime"

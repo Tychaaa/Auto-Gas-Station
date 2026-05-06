@@ -15,6 +15,8 @@ func NewRouter(
 	fuelingHandler *handlers.FuelingHandler,
 	adminHandler *handlers.AdminHandler,
 	kioskHandler *handlers.KioskHandler,
+	watchdogHandler *handlers.WatchdogHandler,
+	equipmentHandler *handlers.EquipmentHandler,
 ) *gin.Engine {
 	router := gin.New()
 	router.Use(gin.Logger(), gin.Recovery())
@@ -27,7 +29,7 @@ func NewRouter(
 	RegisterTransactionRoutes(router, transactionHandler, paymentHandler)
 	RegisterFuelingRoutes(router, fuelingHandler)
 	RegisterKioskRoutes(router, kioskHandler)
-	RegisterAdminRoutes(router, adminAuth, adminHandler, kioskHandler)
+	RegisterAdminRoutes(router, adminAuth, adminHandler, kioskHandler, watchdogHandler, equipmentHandler)
 	return router
 }
 
@@ -60,9 +62,10 @@ func RegisterFuelingRoutes(r *gin.Engine, h *handlers.FuelingHandler) {
 func RegisterKioskRoutes(r *gin.Engine, h *handlers.KioskHandler) {
 	v1 := r.Group("/api/v1")
 	v1.GET("/kiosk/state", h.State)
+	v1.GET("/kiosk/events", h.Events)
 }
 
-func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.AdminHandler, kiosk *handlers.KioskHandler) {
+func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.AdminHandler, kiosk *handlers.KioskHandler, watchdog *handlers.WatchdogHandler, equipment *handlers.EquipmentHandler) {
 	v1 := r.Group("/api/v1")
 	group := v1.Group("/admin", NewAdminAuthMiddleware(auth))
 	{
@@ -70,6 +73,9 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.POST("/prices/versions", admin.CreatePriceVersion)
 		group.GET("/transactions", admin.ListTransactions)
 		group.POST("/maintenance", kiosk.SetMaintenance)
+		group.GET("/system/watchdog", watchdog.Status)
+		group.POST("/system/reboot", watchdog.Reboot)
+		group.POST("/equipment/dispenser/check", equipment.CheckDispenser)
 	}
 }
 
