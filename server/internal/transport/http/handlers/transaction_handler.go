@@ -70,6 +70,29 @@ func (h *TransactionHandler) UpdateSelection(c *gin.Context) {
 	c.JSON(nethttp.StatusOK, updated)
 }
 
+// InactivityTimeout обрабатывает таймаут неактивности терминала.
+// Безопасно завершает транзакцию, если она находится в состоянии selection.
+// Транзакции в процессе оплаты, фискализации и налива не прерываются.
+func (h *TransactionHandler) InactivityTimeout(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "transaction id is required"})
+		return
+	}
+
+	result, err := h.transactions.InactivityTimeout(id)
+	if err != nil {
+		writeTransactionError(c, err, nil)
+		return
+	}
+
+	c.JSON(nethttp.StatusOK, dto.InactivityTimeoutResponse{
+		Cleared: result.Cleared,
+		Status:  string(result.Status),
+		Reason:  result.Reason,
+	})
+}
+
 func (h *TransactionHandler) FuelPrices(c *gin.Context) {
 	prices, err := h.prices.ListCurrentPrices()
 	if err != nil {

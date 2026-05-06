@@ -71,7 +71,7 @@ defineEmits<{
       class="font-rubik font-semibold text-xl leading-none px-4 py-2 rounded-lg transition-all duration-200"
       :class="selected ? 'bg-white/15 text-white' : 'bg-fuel-cream text-fuel-forest'"
     >
-      {{ pricePerLiter }} ₽/л
+      {{ pricePerLiter.toFixed(2) }} ₽/л
     </div>
 
     <!-- Индикатор выбора -->
