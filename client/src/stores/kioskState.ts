@@ -1,19 +1,16 @@
 import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 
+import { API_BASE_URL } from '@/api/http'
 import { getKioskState } from '@/api/kiosk.api'
 import type { KioskState } from '@/types/kioskState'
 
-const DEFAULT_POLL_INTERVAL_MS = 3000
-
-// Стор состояния киоска: режим тех работ и причина
-// Используется и оверлеем MaintenanceView (в киоске), и AdminDashboardView
 export const useKioskStateStore = defineStore('kioskState', () => {
   const state = ref<KioskState | null>(null)
   const isLoading = ref(false)
   const loadError = ref<string | null>(null)
 
-  let pollTimerId: ReturnType<typeof setInterval> | null = null
+  let es: EventSource | null = null
 
   const maintenance = computed(() => state.value?.maintenance ?? false)
   const reason = computed(() => state.value?.reason ?? '')
@@ -31,22 +28,28 @@ export const useKioskStateStore = defineStore('kioskState', () => {
     }
   }
 
-  function startPolling(intervalMs: number = DEFAULT_POLL_INTERVAL_MS): void {
-    if (pollTimerId !== null) {
-      return
+  function connect(): void {
+    if (es !== null) return
+
+    es = new EventSource(`${API_BASE_URL}/kiosk/events`)
+
+    es.onmessage = (event) => {
+      try {
+        applyState(JSON.parse(event.data) as KioskState)
+      } catch {
+        // ignore malformed events
+      }
     }
-    void refresh()
-    pollTimerId = setInterval(() => {
-      void refresh()
-    }, intervalMs)
+
+    es.onerror = () => {
+      loadError.value = 'Ошибка SSE-соединения с сервером'
+    }
   }
 
-  function stopPolling(): void {
-    if (pollTimerId === null) {
-      return
-    }
-    clearInterval(pollTimerId)
-    pollTimerId = null
+  function disconnect(): void {
+    if (es === null) return
+    es.close()
+    es = null
   }
 
   function applyState(next: KioskState): void {
@@ -61,8 +64,8 @@ export const useKioskStateStore = defineStore('kioskState', () => {
     isLoading,
     loadError,
     refresh,
-    startPolling,
-    stopPolling,
+    connect,
+    disconnect,
     applyState,
   }
 })
