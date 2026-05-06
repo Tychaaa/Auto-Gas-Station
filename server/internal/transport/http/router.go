@@ -62,6 +62,7 @@ func RegisterFuelingRoutes(r *gin.Engine, h *handlers.FuelingHandler) {
 func RegisterKioskRoutes(r *gin.Engine, h *handlers.KioskHandler) {
 	v1 := r.Group("/api/v1")
 	v1.GET("/kiosk/state", h.State)
+	v1.GET("/kiosk/events", h.Events)
 }
 
 func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.AdminHandler, kiosk *handlers.KioskHandler, watchdog *handlers.WatchdogHandler, equipment *handlers.EquipmentHandler) {
