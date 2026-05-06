@@ -2,6 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, watch } from 'vue'
 import { RouterView, useRoute } from 'vue-router'
 
+import InactivityWarningDialog from '@/components/InactivityWarningDialog.vue'
 import MaintenanceView from '@/views/MaintenanceView.vue'
 import { useInactivityTimeout } from '@/composables/useInactivityTimeout'
 import { useKioskStateStore } from '@/stores/kioskState'
@@ -9,7 +10,7 @@ import { useKioskStateStore } from '@/stores/kioskState'
 const route = useRoute()
 const kioskStateStore = useKioskStateStore()
 
-useInactivityTimeout()
+const { isWarningVisible, secondsRemaining, cancelTimeout, triggerGoHome } = useInactivityTimeout()
 
 // Админские маршруты не подпадают под режим тех работ
 // Админ сам управляет этим режимом кнопкой в панели
@@ -46,6 +47,12 @@ onBeforeUnmount(() => {
 
 <template>
   <RouterView />
+  <InactivityWarningDialog
+    v-if="isWarningVisible"
+    :seconds-remaining="secondsRemaining"
+    @cancel="cancelTimeout"
+    @go-home="triggerGoHome"
+  />
   <MaintenanceView v-if="shouldShowMaintenance" />
 </template>
 
