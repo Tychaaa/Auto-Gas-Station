@@ -9,6 +9,7 @@ import (
 
 	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,20 +32,20 @@ const (
 )
 
 type Config struct {
-	GinMode              string
-	Port                 string
-	AllowedOrigins       []string
-	PricingDBPath        string
-	SelectionPriceLock   time.Duration
-	InactivityTimeout    time.Duration
+	GinMode                 string
+	Port                    string
+	AllowedOrigins          []string
+	PricingDBPath           string
+	SelectionPriceLock      time.Duration
+	InactivityTimeout       time.Duration
 	InactivitySweepInterval time.Duration
 	InactivitySweepEnabled  bool
-	VendotekMockBaseURL  string
-	AdminUsername        string
-	AdminPassword        string
-	FuelSerial           FuelSerialConfig
-	FiscalKKT            fiscal.Config
-  Watchdog            WatchdogConfig
+	VendotekMockBaseURL     string
+	AdminUsername           string
+	AdminPassword           string
+	FuelSerial              FuelSerialConfig
+	FiscalKKT               fiscal.Config
+	Watchdog                WatchdogConfig
 }
 
 type FuelSerialConfig struct {
@@ -105,17 +106,17 @@ func Load() (Config, error) {
 	}
 
 	return Config{
-		GinMode:             mode,
-		Port:                envString("PORT", "8080"),
-		AllowedOrigins:      resolveAllowedOrigins(mode),
-		PricingDBPath:       envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
+		GinMode:                 mode,
+		Port:                    envString("PORT", "8080"),
+		AllowedOrigins:          resolveAllowedOrigins(mode),
+		PricingDBPath:           envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
 		SelectionPriceLock:      lockTTL,
 		InactivityTimeout:       inactivityTTL,
 		InactivitySweepInterval: sweepInterval,
 		InactivitySweepEnabled:  envBool("TRANSACTION_IDLE_SWEEP_ENABLED", true),
 		VendotekMockBaseURL:     envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
-		AdminUsername:       adminUsername,
-		AdminPassword:       adminPassword,
+		AdminUsername:           adminUsername,
+		AdminPassword:           adminPassword,
 		FuelSerial: FuelSerialConfig{
 			Port:     envString("FUEL_PORT", defaultFuelPort),
 			Baud:     envInt("FUEL_BAUD", defaultFuelBaud),
@@ -124,7 +125,8 @@ func Load() (Config, error) {
 			Parity:   envString("FUEL_PARITY", defaultFuelParity),
 			Address:  envInt("FUEL_ADDRESS", defaultFuelAddress),
 		},
-		Watchdog: watchdog,
+		Watchdog:  watchdog,
+		FiscalKKT: fiscalKKT,
 	}, nil
 }
 
@@ -165,7 +167,6 @@ func loadWatchdog() (WatchdogConfig, error) {
 		Baud:              envInt("WATCHDOG_BAUD", defaultWatchdogBaud),
 		HeartbeatInterval: heartbeat,
 		ExchangeTimeout:   timeout,
-		FiscalKKT: fiscalKKT,
 	}, nil
 }
 
