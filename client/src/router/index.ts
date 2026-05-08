@@ -1,6 +1,7 @@
 import { createRouter, createWebHistory, type RouteRecordRaw } from 'vue-router'
 
 import { ensureAdminSession } from '@/api/admin.api'
+import { reportKioskScreen } from '@/api/kiosk.api'
 import { useTransactionFlowStore } from '@/stores'
 
 // Дополнительные флаги доступа для маршрутов
@@ -183,6 +184,22 @@ router.beforeEach(async (to) => {
   }
 
   return true
+})
+
+const FLOW_ROUTE_NAMES = new Set([
+  'fuel-select',
+  'order-select',
+  'payment-method',
+  'payment-pending',
+  'payment-result',
+  'fueling-progress',
+  'fueling-done',
+])
+
+router.afterEach((to) => {
+  const name = String(to.name ?? '')
+  if (!FLOW_ROUTE_NAMES.has(name)) return
+  reportKioskScreen(name).catch(() => {})
 })
 
 export default router
