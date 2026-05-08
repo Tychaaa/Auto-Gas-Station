@@ -19,6 +19,19 @@ const updatedAt = computed(() => kioskStateStore.state?.updatedAt ?? '')
 const currentScreen = computed(() => kioskStateStore.screen)
 const screenCategory = computed(() => categorize(currentScreen.value))
 
+const screenBadgeClass = computed(() => {
+  switch (screenCategory.value) {
+    case 'free':
+      return 'bg-fuel-lime/15 border-fuel-lime/50 text-fuel-forest'
+    case 'confirm':
+      return 'bg-amber-50 border-amber-200 text-amber-700'
+    case 'blocked':
+      return 'bg-red-50 border-red-200 text-red-700'
+    default:
+      return 'bg-gray-100 border-gray-200 text-gray-500'
+  }
+})
+
 async function applyMaintenance(reason: string): Promise<void> {
   isSubmitting.value = true
   submitError.value = null
@@ -100,7 +113,7 @@ function formatTimestamp(iso: string): string {
         <p class="font-karla text-xs uppercase tracking-widest text-fuel-olive">
           Текущее состояние АЗС
         </p>
-        <div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+        <div class="flex flex-wrap items-center gap-x-3 gap-y-1">
           <h2
             class="font-rubik font-bold text-3xl leading-tight"
             :class="isMaintenance ? 'text-amber-700' : 'text-fuel-forest'"
@@ -109,9 +122,10 @@ function formatTimestamp(iso: string): string {
           </h2>
           <span
             v-if="!isMaintenance"
-            class="font-karla text-base text-fuel-olive"
+            class="inline-block rounded-full border px-3 py-0.5 font-karla text-sm font-medium"
+            :class="screenBadgeClass"
           >
-            · {{ screenLabel(currentScreen) }}
+            {{ screenLabel(currentScreen) }}
           </span>
         </div>
         <p v-if="isMaintenance && currentReason" class="font-karla text-base text-fuel-forest/80">
