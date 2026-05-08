@@ -9,6 +9,7 @@ import (
 type KioskState struct {
 	Maintenance bool      `json:"maintenance"`
 	Reason      string    `json:"reason"`
+	Screen      string    `json:"screen"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
@@ -16,6 +17,7 @@ type KioskService struct {
 	mu          sync.RWMutex
 	maintenance bool
 	reason      string
+	screen      string
 	updatedAt   time.Time
 
 	subsMu      sync.Mutex
@@ -37,6 +39,7 @@ func (s *KioskService) Snapshot() KioskState {
 	return KioskState{
 		Maintenance: s.maintenance,
 		Reason:      s.reason,
+		Screen:      s.screen,
 		UpdatedAt:   s.updatedAt,
 	}
 }
@@ -53,6 +56,28 @@ func (s *KioskService) SetMaintenance(enabled bool, reason string) KioskState {
 	state := KioskState{
 		Maintenance: s.maintenance,
 		Reason:      s.reason,
+		Screen:      s.screen,
+		UpdatedAt:   s.updatedAt,
+	}
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	return state
+}
+
+func (s *KioskService) SetScreen(screen string) KioskState {
+	screen = strings.TrimSpace(screen)
+	if len(screen) > 64 {
+		screen = screen[:64]
+	}
+
+	s.mu.Lock()
+	s.screen = screen
+	s.updatedAt = time.Now().UTC()
+	state := KioskState{
+		Maintenance: s.maintenance,
+		Reason:      s.reason,
+		Screen:      s.screen,
 		UpdatedAt:   s.updatedAt,
 	}
 	s.mu.Unlock()

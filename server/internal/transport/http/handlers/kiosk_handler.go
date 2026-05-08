@@ -47,6 +47,15 @@ func (h *KioskHandler) Events(c *gin.Context) {
 	}
 }
 
+func (h *KioskHandler) SetScreen(c *gin.Context) {
+	var req dto.SetScreenRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request body: " + err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, h.kiosk.SetScreen(req.Screen))
+}
+
 func (h *KioskHandler) SetMaintenance(c *gin.Context) {
 	var req dto.SetMaintenanceRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
