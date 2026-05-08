@@ -171,7 +171,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		if err != nil || state.priceMinor <= 0 {
 			return encodeShortResponse(aztCAN), nil
 		}
-		state.doseLiters = amountMinor * 100 / state.priceMinor
+		state.doseLiters = int64(math.Round(float64(amountMinor) * 100.0 / float64(state.priceMinor)))
 		state.currentLiters = 0
 		state.reasonCode = '0'
 		log.Printf("fuel emulator dose by amount liters=%d priceMinor=%d", state.doseLiters, state.priceMinor)
