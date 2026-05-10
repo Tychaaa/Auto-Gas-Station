@@ -143,7 +143,7 @@ func (a *AZTSerialAdapter) Check(ctx context.Context) (CheckResult, error) {
 }
 
 func (a *AZTSerialAdapter) newClient() (*azt.MasterClient, error) {
-	transport, err := azt.NewWindowsSerialTransport(a.config)
+	transport, err := azt.NewSerialTransport(a.config)
 	if err != nil {
 		return nil, err
 	}
