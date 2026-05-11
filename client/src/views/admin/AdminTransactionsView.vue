@@ -56,22 +56,23 @@ const EVENT_LABELS: Record<string, string> = {
   abandoned: 'Отменено',
 }
 
+// Серый — нейтральные события, синий — процесс, зелёный — успех, красный — ошибка/отмена
 const EVENT_DOT_CLASSES: Record<string, string> = {
-  created: 'bg-fuel-olive',
-  selection_updated: 'bg-amber-400',
-  payment_started: 'bg-sky-400',
+  created: 'bg-gray-400',
+  selection_updated: 'bg-gray-400',
+  payment_started: 'bg-sky-500',
   payment_approved: 'bg-emerald-500',
   payment_declined: 'bg-red-500',
-  fiscalizing_started: 'bg-sky-400',
-  receipt_issued: 'bg-emerald-400',
+  fiscalizing_started: 'bg-sky-500',
+  receipt_issued: 'bg-emerald-500',
   fiscal_failed: 'bg-red-500',
   fueling_started: 'bg-sky-500',
-  fueling_dispensing: 'bg-sky-400',
-  fueling_completed: 'bg-emerald-400',
+  fueling_dispensing: 'bg-sky-500',
+  fueling_completed: 'bg-emerald-500',
   fueling_failed: 'bg-red-500',
-  completed: 'bg-emerald-600',
-  failed: 'bg-red-600',
-  abandoned: 'bg-gray-400',
+  completed: 'bg-emerald-500',
+  failed: 'bg-red-500',
+  abandoned: 'bg-red-500',
 }
 
 const EVENT_LABEL_CLASSES: Record<string, string> = {
@@ -268,7 +269,6 @@ onMounted(() => {
             <th class="font-karla text-xs uppercase tracking-widest text-fuel-olive py-3 px-4 text-right whitespace-nowrap">Сумма, ₽</th>
             <th class="font-karla text-xs uppercase tracking-widest text-fuel-olive py-3 px-4 text-left whitespace-nowrap">Статус</th>
             <th class="font-karla text-xs uppercase tracking-widest text-fuel-olive py-3 px-4 text-left whitespace-nowrap">Чек</th>
-            <th class="font-karla text-xs uppercase tracking-widest text-fuel-olive py-3 px-4 text-left whitespace-nowrap">Ошибка</th>
           </tr>
         </thead>
         <tbody>
@@ -294,7 +294,6 @@ onMounted(() => {
               </span>
             </td>
             <td class="font-karla text-sm text-fuel-olive py-3 px-4">{{ tx.receiptNumber || '—' }}</td>
-            <td class="font-karla text-sm text-red-600 py-3 px-4 max-w-xs truncate">{{ tx.errorMessage || '' }}</td>
           </tr>
         </tbody>
       </table>
