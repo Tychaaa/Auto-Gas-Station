@@ -14,6 +14,7 @@ export const useKioskStateStore = defineStore('kioskState', () => {
 
   const maintenance = computed(() => state.value?.maintenance ?? false)
   const reason = computed(() => state.value?.reason ?? '')
+  const screen = computed(() => state.value?.screen ?? '')
 
   async function refresh(): Promise<void> {
     isLoading.value = true
@@ -61,6 +62,7 @@ export const useKioskStateStore = defineStore('kioskState', () => {
     state,
     maintenance,
     reason,
+    screen,
     isLoading,
     loadError,
     refresh,

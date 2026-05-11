@@ -3,5 +3,6 @@
 export interface KioskState {
   maintenance: boolean
   reason: string
+  screen: string
   updatedAt: string
 }
