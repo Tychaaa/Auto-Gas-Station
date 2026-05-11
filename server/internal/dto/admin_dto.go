@@ -30,6 +30,12 @@ type AdminTransactionView struct {
 	ErrorMessage  string  `json:"errorMessage"`
 }
 
+type TransactionEventDTO struct {
+	EventType  string `json:"eventType"`
+	OccurredAt string `json:"occurredAt"`
+	Detail     string `json:"detail,omitempty"`
+}
+
 type AdminTransactionDetailsView struct {
 	ID        string `json:"id"`
 	CreatedAt string `json:"createdAt"`
@@ -68,6 +74,8 @@ type AdminTransactionDetailsView struct {
 	FuelingError     string  `json:"fuelingError"`
 	// Прочее
 	AbandonReason string `json:"abandonReason"`
+	// Журнал событий жизненного цикла
+	Events []TransactionEventDTO `json:"events"`
 }
 
 // WatchdogStatusView — представление состояния ESP32 watchdog для админки.

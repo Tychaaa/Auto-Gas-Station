@@ -84,7 +84,14 @@ func (h *AdminHandler) GetTransaction(c *gin.Context) {
 		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(nethttp.StatusOK, toAdminTransactionDetailsView(tx))
+
+	events, err := h.txRepo.GetEvents(id)
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
+	c.JSON(nethttp.StatusOK, toAdminTransactionDetailsView(tx, events))
 }
 
 func toAdminTransactionView(tx *model.Transaction) dto.AdminTransactionView {
@@ -106,7 +113,16 @@ func toAdminTransactionView(tx *model.Transaction) dto.AdminTransactionView {
 	}
 }
 
-func toAdminTransactionDetailsView(tx *model.Transaction) dto.AdminTransactionDetailsView {
+func toAdminTransactionDetailsView(tx *model.Transaction, events []model.TransactionEvent) dto.AdminTransactionDetailsView {
+	eventDTOs := make([]dto.TransactionEventDTO, 0, len(events))
+	for _, ev := range events {
+		eventDTOs = append(eventDTOs, dto.TransactionEventDTO{
+			EventType:  string(ev.EventType),
+			OccurredAt: ev.OccurredAt.Format(time.RFC3339),
+			Detail:     ev.Detail,
+		})
+	}
+
 	return dto.AdminTransactionDetailsView{
 		ID:                tx.ID,
 		CreatedAt:         tx.CreatedAt.Format(time.RFC3339),
@@ -138,6 +154,7 @@ func toAdminTransactionDetailsView(tx *model.Transaction) dto.AdminTransactionDe
 		DispensePartial:   tx.DispensePartial,
 		FuelingError:      tx.FuelingError,
 		AbandonReason:     tx.AbandonReason,
+		Events:            eventDTOs,
 	}
 }
 
