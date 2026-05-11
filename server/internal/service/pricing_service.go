@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	DefaultPricingDBPath     = "data/pricing.db"
+	DefaultDBPath            = "data/kiosk.db"
 	DefaultPricingLockTTLEnv = "10m"
 	DefaultPricingCurrency   = "RUB"
 )
