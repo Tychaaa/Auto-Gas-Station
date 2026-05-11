@@ -18,6 +18,7 @@ type TransactionRepository interface {
 	Get(id string) (*model.Transaction, error)
 	Update(id string, apply func(*model.Transaction) error) (*model.Transaction, error)
 	ListAll() ([]*model.Transaction, error)
+	GetEvents(txID string) ([]model.TransactionEvent, error)
 }
 
 type TransactionService struct {

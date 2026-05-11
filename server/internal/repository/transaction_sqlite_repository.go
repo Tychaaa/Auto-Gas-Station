@@ -71,6 +71,15 @@ func (r *SQLiteTransactionRepository) InitSchema() error {
 		);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_created_at ON transactions(created_at DESC);`,
 		`CREATE INDEX IF NOT EXISTS idx_transactions_status ON transactions(status);`,
+		`CREATE TABLE IF NOT EXISTS transaction_events (
+			id             INTEGER PRIMARY KEY AUTOINCREMENT,
+			transaction_id TEXT NOT NULL,
+			event_type     TEXT NOT NULL,
+			occurred_at    DATETIME NOT NULL,
+			detail         TEXT NOT NULL DEFAULT '',
+			FOREIGN KEY (transaction_id) REFERENCES transactions(id)
+		);`,
+		`CREATE INDEX IF NOT EXISTS idx_tx_events_tx_id ON transaction_events(transaction_id, id);`,
 	}
 	for _, stmt := range schema {
 		if _, err := r.db.Exec(stmt); err != nil {
@@ -117,8 +126,27 @@ func (r *SQLiteTransactionRepository) Create(tx *model.Transaction) (*model.Tran
 	copyTx.CreatedAt = now
 	copyTx.UpdatedAt = now
 
-	if _, err := r.db.Exec(insertTransactionSQL, insertArgs(&copyTx)...); err != nil {
+	sqlTx, err := r.db.Begin()
+	if err != nil {
+		return nil, fmt.Errorf("begin create tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = sqlTx.Rollback()
+		}
+	}()
+
+	if _, err = sqlTx.Exec(insertTransactionSQL, insertArgs(&copyTx)...); err != nil {
 		return nil, fmt.Errorf("insert transaction: %w", err)
+	}
+	if _, err = sqlTx.Exec(
+		`INSERT INTO transaction_events (transaction_id, event_type, occurred_at, detail) VALUES (?, ?, ?, ?)`,
+		copyTx.ID, string(model.TxEventCreated), now.UTC(), "",
+	); err != nil {
+		return nil, fmt.Errorf("insert created event: %w", err)
+	}
+	if err = sqlTx.Commit(); err != nil {
+		return nil, fmt.Errorf("commit create tx: %w", err)
 	}
 	return &copyTx, nil
 }
@@ -156,6 +184,8 @@ func (r *SQLiteTransactionRepository) Update(id string, apply func(*model.Transa
 		return nil, fmt.Errorf("get transaction for update: %w", err)
 	}
 
+	oldTx := *tx
+
 	if err = apply(tx); err != nil {
 		return nil, err
 	}
@@ -163,6 +193,16 @@ func (r *SQLiteTransactionRepository) Update(id string, apply func(*model.Transa
 
 	if _, err = sqlTx.Exec(updateTransactionSQL, updateArgs(tx)...); err != nil {
 		return nil, fmt.Errorf("update transaction: %w", err)
+	}
+
+	events := detectEvents(&oldTx, tx)
+	for _, ev := range events {
+		if _, err = sqlTx.Exec(
+			`INSERT INTO transaction_events (transaction_id, event_type, occurred_at, detail) VALUES (?, ?, ?, ?)`,
+			tx.ID, string(ev.EventType), ev.OccurredAt.UTC(), ev.Detail,
+		); err != nil {
+			return nil, fmt.Errorf("insert transaction event %s: %w", ev.EventType, err)
+		}
 	}
 
 	if err = sqlTx.Commit(); err != nil {
@@ -190,6 +230,110 @@ func (r *SQLiteTransactionRepository) ListAll() ([]*model.Transaction, error) {
 		return nil, fmt.Errorf("iterate transactions: %w", err)
 	}
 	return result, nil
+}
+
+func (r *SQLiteTransactionRepository) GetEvents(txID string) ([]model.TransactionEvent, error) {
+	rows, err := r.db.Query(
+		`SELECT id, transaction_id, event_type, occurred_at, detail FROM transaction_events WHERE transaction_id = ? ORDER BY id ASC`,
+		txID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get transaction events: %w", err)
+	}
+	defer rows.Close()
+
+	var result []model.TransactionEvent
+	for rows.Next() {
+		var ev model.TransactionEvent
+		var eventTypeStr string
+		if err := rows.Scan(&ev.ID, &ev.TransactionID, &eventTypeStr, &ev.OccurredAt, &ev.Detail); err != nil {
+			return nil, fmt.Errorf("scan event row: %w", err)
+		}
+		ev.EventType = model.TransactionEventType(eventTypeStr)
+		result = append(result, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate events: %w", err)
+	}
+	return result, nil
+}
+
+// detectEvents сравнивает состояние транзакции до и после Update и возвращает
+// список событий, которые нужно записать в журнал.
+func detectEvents(old, next *model.Transaction) []model.TransactionEvent {
+	var events []model.TransactionEvent
+	now := time.Now()
+	add := func(et model.TransactionEventType, detail string) {
+		events = append(events, model.TransactionEvent{
+			TransactionID: next.ID,
+			EventType:     et,
+			OccurredAt:    now,
+			Detail:        detail,
+		})
+	}
+
+	// Изменение выбора (оба в selection, но что-то поменялось)
+	if old.Status == model.TransactionStatusSelection && next.Status == model.TransactionStatusSelection {
+		if old.FuelType != next.FuelType || old.OrderMode != next.OrderMode ||
+			old.AmountRub != next.AmountRub || old.Liters != next.Liters || old.Preset != next.Preset {
+			add(model.TxEventSelectionUpdated, next.FuelType)
+		}
+	}
+
+	// Переходы платёжного контура
+	if old.Status == model.TransactionStatusSelection && next.Status == model.TransactionStatusPaymentPending {
+		add(model.TxEventPaymentStarted, "")
+	}
+	if old.Status == model.TransactionStatusPaymentPending && next.Status == model.TransactionStatusPaid {
+		add(model.TxEventPaymentApproved, "")
+	}
+	if old.Status == model.TransactionStatusPaymentPending && next.Status == model.TransactionStatusFailed {
+		add(model.TxEventPaymentDeclined, next.PaymentError)
+	}
+
+	// Переходы фискального контура
+	if old.Status == model.TransactionStatusPaid && next.Status == model.TransactionStatusFiscalizing {
+		add(model.TxEventFiscalizingStarted, "")
+	}
+	if old.Status == model.TransactionStatusFiscalizing && next.FiscalStatus == model.FiscalStatusDone {
+		add(model.TxEventReceiptIssued, next.ReceiptNumber)
+	}
+	if old.Status == model.TransactionStatusFiscalizing && next.Status == model.TransactionStatusFailed {
+		add(model.TxEventFiscalFailed, next.FiscalError)
+	}
+
+	// Переходы топливного контура
+	if old.Status == model.TransactionStatusPaid && next.Status == model.TransactionStatusFueling {
+		add(model.TxEventFuelingStarted, "")
+	}
+	if old.FuelingStatus != model.FuelingStatusDispensing && next.FuelingStatus == model.FuelingStatusDispensing {
+		add(model.TxEventFuelingDispensing, "")
+	}
+	if !old.DispenseComplete && next.DispenseComplete {
+		detail := fmt.Sprintf("%.3f л", next.DispensedLiters)
+		if next.DispensePartial {
+			detail += " (частично)"
+		}
+		add(model.TxEventFuelingCompleted, detail)
+	}
+	if old.Status == model.TransactionStatusFueling && next.Status == model.TransactionStatusFailed {
+		add(model.TxEventFuelingFailed, next.FuelingError)
+	}
+
+	// paid → failed (AbortFuelingFromPaid)
+	if old.Status == model.TransactionStatusPaid && next.Status == model.TransactionStatusFailed {
+		add(model.TxEventFailed, next.FuelingError)
+	}
+
+	// Терминальные состояния
+	if old.Status != model.TransactionStatusCompleted && next.Status == model.TransactionStatusCompleted {
+		add(model.TxEventCompleted, "")
+	}
+	if old.Status != model.TransactionStatusAbandoned && next.Status == model.TransactionStatusAbandoned {
+		add(model.TxEventAbandoned, next.AbandonReason)
+	}
+
+	return events
 }
 
 func (r *SQLiteTransactionRepository) nextID() string {
