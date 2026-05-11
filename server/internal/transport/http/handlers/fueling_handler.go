@@ -14,11 +14,11 @@ import (
 )
 
 type FuelingHandler struct {
-	store   *repository.TransactionStore
+	store   service.TransactionRepository
 	adapter fueling.Adapter
 }
 
-func NewFuelingHandler(store *repository.TransactionStore, adapter fueling.Adapter) *FuelingHandler {
+func NewFuelingHandler(store service.TransactionRepository, adapter fueling.Adapter) *FuelingHandler {
 	return &FuelingHandler{store: store, adapter: adapter}
 }
 
@@ -29,9 +29,13 @@ func (h *FuelingHandler) Start(c *gin.Context) {
 		return
 	}
 
-	tx, ok := h.store.Get(id)
-	if !ok {
+	tx, err := h.store.Get(id)
+	if errors.Is(err, repository.ErrTransactionNotFound) {
 		c.JSON(nethttp.StatusNotFound, gin.H{"error": "transaction not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 
@@ -127,9 +131,13 @@ func (h *FuelingHandler) Progress(c *gin.Context) {
 		return
 	}
 
-	tx, ok := h.store.Get(id)
-	if !ok {
+	tx, err := h.store.Get(id)
+	if errors.Is(err, repository.ErrTransactionNotFound) {
 		c.JSON(nethttp.StatusNotFound, gin.H{"error": "transaction not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
 	}
 	if tx.FuelingSessionID == "" {

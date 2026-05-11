@@ -35,7 +35,7 @@ type Config struct {
 	GinMode                 string
 	Port                    string
 	AllowedOrigins          []string
-	PricingDBPath           string
+	DBPath                  string
 	SelectionPriceLock      time.Duration
 	InactivityTimeout       time.Duration
 	InactivitySweepInterval time.Duration
@@ -109,7 +109,7 @@ func Load() (Config, error) {
 		GinMode:                 mode,
 		Port:                    envString("PORT", "8080"),
 		AllowedOrigins:          resolveAllowedOrigins(mode),
-		PricingDBPath:           envString("PRICING_DB_PATH", service.DefaultPricingDBPath),
+		DBPath:                  envString("DB_PATH", service.DefaultDBPath),
 		SelectionPriceLock:      lockTTL,
 		InactivityTimeout:       inactivityTTL,
 		InactivitySweepInterval: sweepInterval,

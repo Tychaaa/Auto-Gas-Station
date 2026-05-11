@@ -166,25 +166,79 @@ export async function createPriceVersion(
 export interface AdminTransactionView {
   id: string
   createdAt: string
+  updatedAt: string
   fuelType: string
+  orderMode: string
   liters: number
   amountRub: number
+  currency: string
   status: string
   paymentStatus: string
   fiscalStatus: string
+  fuelingStatus: string
   receiptNumber: string
   errorMessage: string
+}
+
+export interface AdminTransactionEventView {
+  eventType: string
+  occurredAt: string
+  detail?: string
+}
+
+export interface AdminTransactionDetailsView {
+  id: string
+  createdAt: string
+  updatedAt: string
+  // Заказ
+  fuelType: string
+  orderMode: string
+  amountRub: number
+  liters: number
+  preset: string
+  // Snapshot цены
+  priceVersionTag: string
+  unitPriceRub: number
+  computedAmountRub: number
+  currency: string
+  pricingSnapshotAt: string
+  priceLockedUntil: string
+  priceWasRepriced: boolean
+  // Статусы
+  status: string
+  paymentStatus: string
+  fiscalStatus: string
+  fuelingStatus: string
+  // Оплата
+  paymentProvider: string
+  paymentSessionId: string
+  paymentError: string
+  // Фискализация
+  receiptNumber: string
+  fiscalError: string
+  // Налив
+  fuelingSessionId: string
+  dispensedLiters: number
+  dispenseComplete: boolean
+  dispensePartial: boolean
+  fuelingError: string
+  // Прочее
+  abandonReason: string
+  // Журнал событий
+  events: AdminTransactionEventView[]
 }
 
 interface AdminTransactionsResponse {
   items: AdminTransactionView[]
 }
 
-// Возвращает список транзакций для админской таблицы
-// Пока на сервере возвращаются захардкоженные примеры (см. TODO в admin_handlers.go)
 export async function listAdminTransactions(): Promise<AdminTransactionView[]> {
   const response = await adminGet<AdminTransactionsResponse>('/admin/transactions')
   return response.items ?? []
+}
+
+export async function getAdminTransaction(id: string): Promise<AdminTransactionDetailsView> {
+  return adminGet<AdminTransactionDetailsView>(`/admin/transactions/${encodeURIComponent(id)}`)
 }
 
 export type AdminWatchdogMode = 'serial' | 'disabled'
