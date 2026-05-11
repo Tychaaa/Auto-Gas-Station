@@ -8,7 +8,6 @@ import (
 
 	"AUTO-GAS-STATION/server/internal/adapter/payment"
 	"AUTO-GAS-STATION/server/internal/model"
-	"AUTO-GAS-STATION/server/internal/repository"
 )
 
 var (
@@ -17,7 +16,7 @@ var (
 )
 
 type PaymentService struct {
-	store        *repository.TransactionStore
+	store        TransactionRepository
 	prices       *PriceService
 	payments     payment.Adapter
 	fiscal       *FiscalService
@@ -25,7 +24,7 @@ type PaymentService struct {
 }
 
 func NewPaymentService(
-	store *repository.TransactionStore,
+	store TransactionRepository,
 	prices *PriceService,
 	payments payment.Adapter,
 	fiscalService *FiscalService,
@@ -41,9 +40,9 @@ func NewPaymentService(
 }
 
 func (s *PaymentService) Start(ctx context.Context, id string) (*model.Transaction, error) {
-	txSnapshot, ok := s.store.Get(id)
-	if !ok {
-		return nil, repository.ErrTransactionNotFound
+	txSnapshot, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
 	}
 	if txSnapshot.Status != model.TransactionStatusSelection {
 		return nil, ErrPaymentStartStateConflict
@@ -109,9 +108,9 @@ func (s *PaymentService) Start(ctx context.Context, id string) (*model.Transacti
 }
 
 func (s *PaymentService) SyncStatus(ctx context.Context, id string) (*model.Transaction, error) {
-	txSnapshot, ok := s.store.Get(id)
-	if !ok {
-		return nil, repository.ErrTransactionNotFound
+	txSnapshot, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
 	}
 	if txSnapshot.PaymentSessionID == "" {
 		return nil, errors.New("payment session id is required")
@@ -135,7 +134,7 @@ func (s *PaymentService) SyncStatus(ctx context.Context, id string) (*model.Tran
 
 // maybeFiscalizeAfterPayment запускает фискальный чек, если оплата только что
 // получила статус approved и FiscalService подключён. Сетевой вызов к ККТ
-// проходит вне TransactionStore.Update.
+// проходит вне репозиторного Update.
 func (s *PaymentService) maybeFiscalizeAfterPayment(ctx context.Context, tx *model.Transaction) (*model.Transaction, error) {
 	if tx == nil {
 		return nil, nil

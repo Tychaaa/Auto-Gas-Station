@@ -8,18 +8,25 @@ import (
 
 	"AUTO-GAS-STATION/server/internal/dto"
 	"AUTO-GAS-STATION/server/internal/model"
-	"AUTO-GAS-STATION/server/internal/repository"
 )
 
 var ErrSelectionStateConflict = errors.New("transaction is not in selection status")
 
+// TransactionRepository определяет контракт хранилища транзакций.
+type TransactionRepository interface {
+	Create(tx *model.Transaction) (*model.Transaction, error)
+	Get(id string) (*model.Transaction, error)
+	Update(id string, apply func(*model.Transaction) error) (*model.Transaction, error)
+	ListAll() ([]*model.Transaction, error)
+}
+
 type TransactionService struct {
-	store        *repository.TransactionStore
+	store        TransactionRepository
 	prices       *PriceService
 	priceLockTTL time.Duration
 }
 
-func NewTransactionService(store *repository.TransactionStore, prices *PriceService, priceLockTTL time.Duration) *TransactionService {
+func NewTransactionService(store TransactionRepository, prices *PriceService, priceLockTTL time.Duration) *TransactionService {
 	return &TransactionService{store: store, prices: prices, priceLockTTL: priceLockTTL}
 }
 
@@ -41,15 +48,11 @@ func (s *TransactionService) Create(req dto.CreateTransactionRequest) (*model.Tr
 	if err := s.prices.ApplySelectionPricing(tx, s.priceLockTTL); err != nil {
 		return nil, err
 	}
-	return s.store.Create(tx), nil
+	return s.store.Create(tx)
 }
 
 func (s *TransactionService) Get(id string) (*model.Transaction, error) {
-	tx, ok := s.store.Get(id)
-	if !ok {
-		return nil, repository.ErrTransactionNotFound
-	}
-	return tx, nil
+	return s.store.Get(id)
 }
 
 // InactivityTimeoutResult возвращается клиенту в ответ на запрос таймаута неактивности.
@@ -62,9 +65,9 @@ type InactivityTimeoutResult struct {
 // InactivityTimeout проверяет состояние транзакции и безопасно завершает её,
 // если это возможно. Вызывается клиентом при истечении таймаута неактивности.
 func (s *TransactionService) InactivityTimeout(id string) (*InactivityTimeoutResult, error) {
-	tx, ok := s.store.Get(id)
-	if !ok {
-		return nil, repository.ErrTransactionNotFound
+	tx, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
 	}
 
 	switch tx.Status {
@@ -110,7 +113,12 @@ func (s *TransactionService) StartSweeper(ctx context.Context, selectionTTL time
 
 func (s *TransactionService) sweepStaleSelections(ttl time.Duration) {
 	threshold := time.Now().Add(-ttl)
-	for _, tx := range s.store.ListAll() {
+	txs, err := s.store.ListAll()
+	if err != nil {
+		slog.Error("sweeper: failed to list transactions", "err", err)
+		return
+	}
+	for _, tx := range txs {
 		if tx.Status != model.TransactionStatusSelection || !tx.UpdatedAt.Before(threshold) {
 			continue
 		}

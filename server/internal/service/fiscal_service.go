@@ -9,7 +9,6 @@ import (
 
 	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/model"
-	"AUTO-GAS-STATION/server/internal/repository"
 )
 
 // ErrFiscalizationNotApplicable - транзакция не в том состоянии, чтобы её фискализировать.
@@ -18,13 +17,13 @@ var ErrFiscalizationNotApplicable = errors.New("transaction is not eligible for 
 // FiscalService - оркестратор фискализации после успешной оплаты.
 // Не делает сетевых вызовов к ККТ под mutex хранилища.
 type FiscalService struct {
-	store   *repository.TransactionStore
+	store   TransactionRepository
 	adapter fiscal.Adapter
 }
 
 // NewFiscalService возвращает сервис. Если adapter == nil, фискализация будет
 // возвращать ErrFiscalizationAdapterUnavailable - удобно для прогонов без ККТ.
-func NewFiscalService(store *repository.TransactionStore, adapter fiscal.Adapter) *FiscalService {
+func NewFiscalService(store TransactionRepository, adapter fiscal.Adapter) *FiscalService {
 	return &FiscalService{store: store, adapter: adapter}
 }
 
@@ -41,9 +40,9 @@ func (s *FiscalService) FiscalizePaid(ctx context.Context, id string) (*model.Tr
 		return nil, ErrFiscalizationAdapterUnavailable
 	}
 
-	tx, ok := s.store.Get(id)
-	if !ok {
-		return nil, repository.ErrTransactionNotFound
+	tx, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
 	}
 	if !canStartFiscalization(tx) {
 		return tx, ErrFiscalizationNotApplicable

@@ -32,11 +32,11 @@ type App struct {
 type Config = config.Config
 
 func New(cfg Config) (*App, error) {
-	if err := os.MkdirAll(filepath.Dir(cfg.PricingDBPath), 0o755); err != nil {
-		return nil, fmt.Errorf("create pricing directory: %w", err)
+	if err := os.MkdirAll(filepath.Dir(cfg.DBPath), 0o755); err != nil {
+		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	priceRepo, err := repository.NewSQLitePriceRepository(cfg.PricingDBPath)
+	priceRepo, err := repository.NewSQLitePriceRepository(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
@@ -49,8 +49,18 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 
+	txRepo, err := repository.NewSQLiteTransactionRepository(cfg.DBPath)
+	if err != nil {
+		_ = priceRepo.Close()
+		return nil, err
+	}
+	if err := txRepo.InitSchema(); err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, err
+	}
+
 	priceService := service.NewPriceService(priceRepo)
-	transactionStore := repository.NewTransactionStore()
 	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
 		Port:     cfg.FuelSerial.Port,
@@ -74,12 +84,12 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("init fiscal adapter: %w", err)
 	}
 
-	transactionService := service.NewTransactionService(transactionStore, priceService, cfg.SelectionPriceLock)
+	transactionService := service.NewTransactionService(txRepo, priceService, cfg.SelectionPriceLock)
 	if cfg.InactivitySweepEnabled {
 		transactionService.StartSweeper(context.Background(), cfg.InactivityTimeout, cfg.InactivitySweepInterval)
 	}
-	fiscalService := service.NewFiscalService(transactionStore, fiscalAdapter)
-	paymentService := service.NewPaymentService(transactionStore, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
+	fiscalService := service.NewFiscalService(txRepo, fiscalAdapter)
+	paymentService := service.NewPaymentService(txRepo, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
 	kioskService := service.NewKioskService()
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
@@ -95,8 +105,8 @@ func New(cfg Config) (*App, error) {
 
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
-	fuelingHandler := handlers.NewFuelingHandler(transactionStore, fuelingAdapter)
-	adminHandler := handlers.NewAdminHandler(priceService)
+	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter)
+	adminHandler := handlers.NewAdminHandler(priceService, txRepo)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
