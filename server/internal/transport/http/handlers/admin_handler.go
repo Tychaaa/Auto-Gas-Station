@@ -1,21 +1,24 @@
 package handlers
 
 import (
+	"errors"
 	nethttp "net/http"
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/dto"
 	"AUTO-GAS-STATION/server/internal/model"
+	"AUTO-GAS-STATION/server/internal/repository"
 	"AUTO-GAS-STATION/server/internal/service"
 	"github.com/gin-gonic/gin"
 )
 
 type AdminHandler struct {
 	prices *service.PriceService
+	txRepo service.TransactionRepository
 }
 
-func NewAdminHandler(prices *service.PriceService) *AdminHandler {
-	return &AdminHandler{prices: prices}
+func NewAdminHandler(prices *service.PriceService, txRepo service.TransactionRepository) *AdminHandler {
+	return &AdminHandler{prices: prices, txRepo: txRepo}
 }
 
 func (h *AdminHandler) ListPriceVersions(c *gin.Context) {
@@ -58,40 +61,113 @@ func (h *AdminHandler) CreatePriceVersion(c *gin.Context) {
 }
 
 func (h *AdminHandler) ListTransactions(c *gin.Context) {
-	now := time.Now()
-	examples := []dto.AdminTransactionView{
-		{
-			ID:            "demo-tx-0001",
-			CreatedAt:     now.Add(-2 * time.Hour).Format(time.RFC3339),
-			FuelType:      "АИ-95",
-			Liters:        31.7,
-			AmountRub:     2064.94,
-			Status:        string(model.TransactionStatusCompleted),
-			PaymentStatus: string(model.PaymentStatusApproved),
-			FiscalStatus:  string(model.FiscalStatusDone),
-			ReceiptNumber: "000123",
-		},
-		{
-			ID:            "demo-tx-0002",
-			CreatedAt:     now.Add(-45 * time.Minute).Format(time.RFC3339),
-			FuelType:      "ДТ",
-			Liters:        12.0,
-			AmountRub:     943.32,
-			Status:        string(model.TransactionStatusFailed),
-			PaymentStatus: string(model.PaymentStatusDeclined),
-			FiscalStatus:  string(model.FiscalStatusNone),
-			ErrorMessage:  "Карта отклонена банком",
-		},
-		{
-			ID:            "demo-tx-0003",
-			CreatedAt:     now.Add(-5 * time.Minute).Format(time.RFC3339),
-			FuelType:      "АИ-92",
-			Liters:        0,
-			AmountRub:     1000.00,
-			Status:        string(model.TransactionStatusPaymentPending),
-			PaymentStatus: string(model.PaymentStatusPending),
-			FiscalStatus:  string(model.FiscalStatusNone),
-		},
+	txs, err := h.txRepo.ListAll()
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
 	}
-	c.JSON(nethttp.StatusOK, gin.H{"items": examples})
+	items := make([]dto.AdminTransactionView, 0, len(txs))
+	for _, tx := range txs {
+		items = append(items, toAdminTransactionView(tx))
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"items": items})
+}
+
+func (h *AdminHandler) GetTransaction(c *gin.Context) {
+	id := c.Param("id")
+	tx, err := h.txRepo.Get(id)
+	if errors.Is(err, repository.ErrTransactionNotFound) {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": "transaction not found"})
+		return
+	}
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, toAdminTransactionDetailsView(tx))
+}
+
+func toAdminTransactionView(tx *model.Transaction) dto.AdminTransactionView {
+	return dto.AdminTransactionView{
+		ID:            tx.ID,
+		CreatedAt:     tx.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:     tx.UpdatedAt.Format(time.RFC3339),
+		FuelType:      tx.FuelType,
+		OrderMode:     tx.OrderMode,
+		Liters:        txDisplayLiters(tx),
+		AmountRub:     txDisplayAmountRub(tx),
+		Currency:      tx.Currency,
+		Status:        string(tx.Status),
+		PaymentStatus: string(tx.PaymentStatus),
+		FiscalStatus:  string(tx.FiscalStatus),
+		FuelingStatus: string(tx.FuelingStatus),
+		ReceiptNumber: tx.ReceiptNumber,
+		ErrorMessage:  txErrorMessage(tx),
+	}
+}
+
+func toAdminTransactionDetailsView(tx *model.Transaction) dto.AdminTransactionDetailsView {
+	return dto.AdminTransactionDetailsView{
+		ID:                tx.ID,
+		CreatedAt:         tx.CreatedAt.Format(time.RFC3339),
+		UpdatedAt:         tx.UpdatedAt.Format(time.RFC3339),
+		FuelType:          tx.FuelType,
+		OrderMode:         tx.OrderMode,
+		AmountRub:         tx.AmountRub,
+		Liters:            tx.Liters,
+		Preset:            tx.Preset,
+		PriceVersionTag:   tx.PriceVersionTag,
+		UnitPriceRub:      float64(tx.UnitPriceMinor) / 100.0,
+		ComputedAmountRub: float64(tx.ComputedAmountMinor) / 100.0,
+		Currency:          tx.Currency,
+		PricingSnapshotAt: formatOptionalTime(tx.PricingSnapshotAt),
+		PriceLockedUntil:  formatOptionalTime(tx.PriceLockedUntil),
+		PriceWasRepriced:  tx.PriceWasRepriced,
+		Status:            string(tx.Status),
+		PaymentStatus:     string(tx.PaymentStatus),
+		FiscalStatus:      string(tx.FiscalStatus),
+		FuelingStatus:     string(tx.FuelingStatus),
+		PaymentProvider:   tx.PaymentProvider,
+		PaymentSessionID:  tx.PaymentSessionID,
+		PaymentError:      tx.PaymentError,
+		ReceiptNumber:     tx.ReceiptNumber,
+		FiscalError:       tx.FiscalError,
+		FuelingSessionID:  tx.FuelingSessionID,
+		DispensedLiters:   tx.DispensedLiters,
+		DispenseComplete:  tx.DispenseComplete,
+		DispensePartial:   tx.DispensePartial,
+		FuelingError:      tx.FuelingError,
+		AbandonReason:     tx.AbandonReason,
+	}
+}
+
+func txDisplayLiters(tx *model.Transaction) float64 {
+	if tx.DispensedLiters > 0 {
+		return tx.DispensedLiters
+	}
+	return tx.Liters
+}
+
+func txDisplayAmountRub(tx *model.Transaction) float64 {
+	if tx.ComputedAmountMinor > 0 {
+		return float64(tx.ComputedAmountMinor) / 100.0
+	}
+	return float64(tx.AmountRub)
+}
+
+func txErrorMessage(tx *model.Transaction) string {
+	if tx.PaymentError != "" {
+		return tx.PaymentError
+	}
+	if tx.FiscalError != "" {
+		return tx.FiscalError
+	}
+	return tx.FuelingError
+}
+
+func formatOptionalTime(t time.Time) string {
+	if t.IsZero() {
+		return ""
+	}
+	return t.Format(time.RFC3339)
 }

@@ -72,6 +72,7 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.GET("/prices/versions", admin.ListPriceVersions)
 		group.POST("/prices/versions", admin.CreatePriceVersion)
 		group.GET("/transactions", admin.ListTransactions)
+		group.GET("/transactions/:id", admin.GetTransaction)
 		group.POST("/maintenance", kiosk.SetMaintenance)
 		group.GET("/system/watchdog", watchdog.Status)
 		group.POST("/system/reboot", watchdog.Reboot)

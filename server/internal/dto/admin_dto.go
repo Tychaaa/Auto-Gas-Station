@@ -16,14 +16,58 @@ type AdminCreatePriceVersionRequest struct {
 type AdminTransactionView struct {
 	ID            string  `json:"id"`
 	CreatedAt     string  `json:"createdAt"`
+	UpdatedAt     string  `json:"updatedAt"`
 	FuelType      string  `json:"fuelType"`
+	OrderMode     string  `json:"orderMode"`
 	Liters        float64 `json:"liters"`
 	AmountRub     float64 `json:"amountRub"`
+	Currency      string  `json:"currency"`
 	Status        string  `json:"status"`
 	PaymentStatus string  `json:"paymentStatus"`
 	FiscalStatus  string  `json:"fiscalStatus"`
+	FuelingStatus string  `json:"fuelingStatus"`
 	ReceiptNumber string  `json:"receiptNumber"`
 	ErrorMessage  string  `json:"errorMessage"`
+}
+
+type AdminTransactionDetailsView struct {
+	ID        string `json:"id"`
+	CreatedAt string `json:"createdAt"`
+	UpdatedAt string `json:"updatedAt"`
+	// Заказ
+	FuelType  string  `json:"fuelType"`
+	OrderMode string  `json:"orderMode"`
+	AmountRub int64   `json:"amountRub"`
+	Liters    float64 `json:"liters"`
+	Preset    string  `json:"preset"`
+	// Snapshot цены
+	PriceVersionTag   string  `json:"priceVersionTag"`
+	UnitPriceRub      float64 `json:"unitPriceRub"`
+	ComputedAmountRub float64 `json:"computedAmountRub"`
+	Currency          string  `json:"currency"`
+	PricingSnapshotAt string  `json:"pricingSnapshotAt"`
+	PriceLockedUntil  string  `json:"priceLockedUntil"`
+	PriceWasRepriced  bool    `json:"priceWasRepriced"`
+	// Статусы
+	Status        string `json:"status"`
+	PaymentStatus string `json:"paymentStatus"`
+	FiscalStatus  string `json:"fiscalStatus"`
+	FuelingStatus string `json:"fuelingStatus"`
+	// Оплата
+	PaymentProvider  string `json:"paymentProvider"`
+	PaymentSessionID string `json:"paymentSessionId"`
+	PaymentError     string `json:"paymentError"`
+	// Фискализация
+	ReceiptNumber string `json:"receiptNumber"`
+	FiscalError   string `json:"fiscalError"`
+	// Налив
+	FuelingSessionID string  `json:"fuelingSessionId"`
+	DispensedLiters  float64 `json:"dispensedLiters"`
+	DispenseComplete bool    `json:"dispenseComplete"`
+	DispensePartial  bool    `json:"dispensePartial"`
+	FuelingError     string  `json:"fuelingError"`
+	// Прочее
+	AbandonReason string `json:"abandonReason"`
 }
 
 // WatchdogStatusView — представление состояния ESP32 watchdog для админки.
