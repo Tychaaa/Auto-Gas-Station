@@ -19,32 +19,10 @@ const STATUS_LABELS: Record<string, string> = {
   abandoned: 'Отменено',
 }
 
-const PAYMENT_STATUS_LABELS: Record<string, string> = {
-  none: '—',
-  pending: 'Ожидание',
-  approved: 'Одобрено',
-  declined: 'Отклонено',
-}
-
-const FISCAL_STATUS_LABELS: Record<string, string> = {
-  none: '—',
-  pending: 'Ожидание',
-  done: 'Выдан',
-  failed: 'Ошибка',
-}
-
-const FUELING_STATUS_LABELS: Record<string, string> = {
-  none: '—',
-  starting: 'Запуск',
-  dispensing: 'Отпуск',
-  completed_waiting_fiscal: 'Ожидание чека',
-  failed: 'Ошибка',
-}
-
 const ORDER_MODE_LABELS: Record<string, string> = {
-  amount: 'По сумме',
-  liters: 'По литрам',
-  preset: 'Пресет',
+  amount: 'по сумме',
+  liters: 'по литрам',
+  preset: 'пресет',
 }
 
 const STATUS_BADGE_CLASSES: Record<string, string> = {
@@ -58,6 +36,55 @@ const STATUS_BADGE_CLASSES: Record<string, string> = {
   selection: 'bg-fuel-olive/20 text-fuel-forest',
 }
 
+// ─── Подписи и стили событий ─────────────────────────────────────────────────
+
+const EVENT_LABELS: Record<string, string> = {
+  created: 'Транзакция создана',
+  selection_updated: 'Выбор изменён',
+  payment_started: 'Запуск оплаты',
+  payment_approved: 'Оплата прошла',
+  payment_declined: 'Оплата отклонена',
+  fiscalizing_started: 'Фискализация',
+  receipt_issued: 'Чек выдан',
+  fiscal_failed: 'Ошибка фискализации',
+  fueling_started: 'Налив запущен',
+  fueling_dispensing: 'Идёт отпуск топлива',
+  fueling_completed: 'Отпуск завершён',
+  fueling_failed: 'Ошибка налива',
+  completed: 'Операция завершена',
+  failed: 'Ошибка',
+  abandoned: 'Отменено',
+}
+
+const EVENT_DOT_CLASSES: Record<string, string> = {
+  created: 'bg-fuel-olive',
+  selection_updated: 'bg-amber-400',
+  payment_started: 'bg-sky-400',
+  payment_approved: 'bg-emerald-500',
+  payment_declined: 'bg-red-500',
+  fiscalizing_started: 'bg-sky-400',
+  receipt_issued: 'bg-emerald-400',
+  fiscal_failed: 'bg-red-500',
+  fueling_started: 'bg-sky-500',
+  fueling_dispensing: 'bg-sky-400',
+  fueling_completed: 'bg-emerald-400',
+  fueling_failed: 'bg-red-500',
+  completed: 'bg-emerald-600',
+  failed: 'bg-red-600',
+  abandoned: 'bg-gray-400',
+}
+
+const EVENT_LABEL_CLASSES: Record<string, string> = {
+  payment_declined: 'text-red-700',
+  fiscal_failed: 'text-red-700',
+  fueling_failed: 'text-red-700',
+  failed: 'text-red-700',
+  completed: 'text-emerald-700 font-semibold',
+  abandoned: 'text-gray-500',
+}
+
+// ─── Данные ──────────────────────────────────────────────────────────────────
+
 const transactions = ref<AdminTransactionView[]>([])
 const isLoading = ref(false)
 const loadError = ref<string | null>(null)
@@ -68,6 +95,8 @@ const selectedTx = ref<AdminTransactionDetailsView | null>(null)
 const isDetailsOpen = ref(false)
 const isDetailsLoading = ref(false)
 const detailsError = ref<string | null>(null)
+
+// ─── Вычисляемые ─────────────────────────────────────────────────────────────
 
 const availableStatuses = computed(() => {
   const set = new Set<string>()
@@ -84,11 +113,20 @@ const filteredTransactions = computed(() => {
   return transactions.value.filter((tx) => tx.status === statusFilter.value)
 })
 
+// ─── Форматирование ───────────────────────────────────────────────────────────
+
 function formatTimestamp(iso: string): string {
   if (!iso) return '—'
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return iso
   return date.toLocaleString('ru-RU', { hour12: false })
+}
+
+function formatEventTime(iso: string): string {
+  if (!iso) return '—'
+  const date = new Date(iso)
+  if (Number.isNaN(date.getTime())) return iso
+  return date.toLocaleTimeString('ru-RU', { hour12: false })
 }
 
 function formatAmount(rub: number): string {
@@ -106,6 +144,34 @@ function statusLabel(status: string): string {
 function statusBadgeClass(status: string): string {
   return STATUS_BADGE_CLASSES[status] ?? 'bg-fuel-olive/15 text-fuel-forest'
 }
+
+function eventLabel(eventType: string): string {
+  return EVENT_LABELS[eventType] ?? eventType
+}
+
+function eventDotClass(eventType: string): string {
+  return EVENT_DOT_CLASSES[eventType] ?? 'bg-fuel-olive/50'
+}
+
+function eventLabelClass(eventType: string): string {
+  return EVENT_LABEL_CLASSES[eventType] ?? 'text-fuel-forest'
+}
+
+function orderSummary(tx: AdminTransactionDetailsView): string {
+  const mode = ORDER_MODE_LABELS[tx.orderMode] ?? tx.orderMode
+  if (tx.orderMode === 'amount') {
+    return `${tx.fuelType} · ${tx.amountRub} ₽ ${mode}`
+  }
+  if (tx.orderMode === 'liters') {
+    return `${tx.fuelType} · ${tx.liters.toFixed(2)} л ${mode}`
+  }
+  if (tx.orderMode === 'preset') {
+    return `${tx.fuelType} · ${tx.preset} (${mode})`
+  }
+  return tx.fuelType
+}
+
+// ─── Действия ────────────────────────────────────────────────────────────────
 
 async function refresh(): Promise<void> {
   isLoading.value = true
@@ -242,7 +308,9 @@ onMounted(() => {
       class="fixed inset-0 z-50 flex items-start justify-center bg-black/40 overflow-y-auto py-8"
       @click.self="closeDetails"
     >
-      <div class="bg-white rounded-2xl shadow-xl w-full max-w-2xl mx-4 my-auto">
+      <div class="bg-white rounded-2xl shadow-xl w-full max-w-lg mx-4 my-auto">
+
+        <!-- Шапка -->
         <div class="flex items-center justify-between px-6 py-4 border-b border-fuel-olive/20">
           <h4 class="font-rubik font-semibold text-lg text-fuel-forest">
             Детали транзакции
@@ -257,186 +325,98 @@ onMounted(() => {
         </div>
 
         <div class="px-6 py-5">
+          <!-- Загрузка / ошибка -->
           <p v-if="isDetailsLoading" class="font-karla text-sm text-fuel-olive">
             Загружаем детали...
           </p>
           <p v-else-if="detailsError" class="font-karla text-sm text-red-600">
             {{ detailsError }}
           </p>
+
           <template v-else-if="selectedTx">
-            <!-- Идентификатор и время -->
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
-              <div class="col-span-2">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">ID</dt>
-                <dd class="font-mono text-sm text-fuel-forest break-all">{{ selectedTx.id }}</dd>
+            <!-- Краткое резюме транзакции -->
+            <div class="bg-fuel-cream/50 rounded-xl p-4 mb-6 flex flex-col gap-2">
+              <div class="flex items-start justify-between gap-3">
+                <span class="font-mono text-xs text-fuel-olive break-all leading-relaxed">{{ selectedTx.id }}</span>
+                <span
+                  class="inline-flex items-center rounded-full px-3 py-1 text-xs font-karla font-medium whitespace-nowrap flex-shrink-0"
+                  :class="statusBadgeClass(selectedTx.status)"
+                >
+                  {{ statusLabel(selectedTx.status) }}
+                </span>
               </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Создана</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ formatTimestamp(selectedTx.createdAt) }}</dd>
+              <div class="flex items-baseline justify-between gap-3">
+                <span class="font-karla text-sm text-fuel-forest">
+                  {{ orderSummary(selectedTx) }}
+                </span>
+                <span class="font-rubik font-semibold text-fuel-forest whitespace-nowrap">
+                  {{ selectedTx.computedAmountRub > 0 ? selectedTx.computedAmountRub.toFixed(2) + ' ₽' : '' }}
+                </span>
               </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Обновлена</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ formatTimestamp(selectedTx.updatedAt) }}</dd>
-              </div>
-            </dl>
+              <span class="font-karla text-xs text-fuel-olive/70">
+                {{ formatTimestamp(selectedTx.createdAt) }}
+              </span>
+            </div>
 
-            <!-- Заказ -->
-            <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Заказ</h5>
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
+            <!-- Timeline событий -->
+            <div v-if="selectedTx.events && selectedTx.events.length > 0">
+              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-4">
+                История
+              </h5>
               <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Топливо</dt>
-                <dd class="font-rubik font-medium text-fuel-forest">{{ selectedTx.fuelType }}</dd>
+                <div
+                  v-for="(event, index) in selectedTx.events"
+                  :key="index"
+                  class="flex gap-3"
+                  :class="index < selectedTx.events.length - 1 ? 'pb-6' : ''"
+                >
+                  <!-- Колонка: кружок + линия точно по центру -->
+                  <div class="relative flex-shrink-0 w-5 flex justify-center">
+                    <!-- Линия внутри колонки — left-1/2 гарантирует центровку,
+                         -bottom-6 тянет её через межстрочный pb-6 к следующему кружку -->
+                    <div
+                      v-if="index < selectedTx.events.length - 1"
+                      class="absolute top-4 -bottom-6 w-px bg-fuel-olive/25 left-1/2 -translate-x-1/2"
+                    />
+                    <!-- Кружок поверх линии -->
+                    <div
+                      class="relative z-10 w-3 h-3 rounded-full mt-1 ring-2 ring-white shadow-sm"
+                      :class="eventDotClass(event.eventType)"
+                    />
+                  </div>
+                  <!-- Содержимое события -->
+                  <div class="min-w-0 flex-1 pb-0.5">
+                    <div class="flex items-baseline flex-wrap gap-x-2 gap-y-0.5">
+                      <span
+                        class="font-karla text-sm font-medium"
+                        :class="eventLabelClass(event.eventType)"
+                      >
+                        {{ eventLabel(event.eventType) }}
+                      </span>
+                      <span
+                        class="font-karla text-xs text-fuel-olive/60"
+                        :title="formatTimestamp(event.occurredAt)"
+                      >
+                        {{ formatEventTime(event.occurredAt) }}
+                      </span>
+                    </div>
+                    <p v-if="event.detail" class="font-karla text-xs text-fuel-olive mt-0.5 leading-relaxed">
+                      {{ event.detail }}
+                    </p>
+                  </div>
+                </div>
               </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Способ</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ ORDER_MODE_LABELS[selectedTx.orderMode] ?? selectedTx.orderMode }}</dd>
-              </div>
-              <div v-if="selectedTx.amountRub > 0">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Сумма заказа, ₽</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.amountRub }}</dd>
-              </div>
-              <div v-if="selectedTx.liters > 0">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Литры заказа</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.liters.toFixed(2) }}</dd>
-              </div>
-              <div v-if="selectedTx.preset">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Пресет</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.preset }}</dd>
-              </div>
-            </dl>
+            </div>
 
-            <!-- Snapshot цены -->
-            <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Снимок цены</h5>
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Версия цен</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.priceVersionTag || '—' }}</dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Валюта</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.currency || '—' }}</dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Цена за литр, ₽</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.unitPriceRub.toFixed(2) }}</dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Итоговая сумма, ₽</dt>
-                <dd class="font-rubik font-semibold text-fuel-forest">{{ selectedTx.computedAmountRub.toFixed(2) }}</dd>
-              </div>
-              <div v-if="selectedTx.pricingSnapshotAt">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Снимок зафиксирован</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ formatTimestamp(selectedTx.pricingSnapshotAt) }}</dd>
-              </div>
-              <div v-if="selectedTx.priceLockedUntil">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Цена заблокирована до</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ formatTimestamp(selectedTx.priceLockedUntil) }}</dd>
-              </div>
-              <div v-if="selectedTx.priceWasRepriced">
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Цена пересчитана</dt>
-                <dd class="font-karla text-sm text-amber-700">Да</dd>
-              </div>
-            </dl>
-
-            <!-- Статусы -->
-            <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Статусы</h5>
-            <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Общий</dt>
-                <dd>
-                  <span
-                    class="inline-flex items-center rounded-full px-3 py-1 text-xs font-karla font-medium"
-                    :class="statusBadgeClass(selectedTx.status)"
-                  >
-                    {{ statusLabel(selectedTx.status) }}
-                  </span>
-                </dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Оплата</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ PAYMENT_STATUS_LABELS[selectedTx.paymentStatus] ?? selectedTx.paymentStatus }}</dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Фискализация</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ FISCAL_STATUS_LABELS[selectedTx.fiscalStatus] ?? selectedTx.fiscalStatus }}</dd>
-              </div>
-              <div>
-                <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Отпуск топлива</dt>
-                <dd class="font-karla text-sm text-fuel-forest">{{ FUELING_STATUS_LABELS[selectedTx.fuelingStatus] ?? selectedTx.fuelingStatus }}</dd>
-              </div>
-            </dl>
-
-            <!-- Оплата -->
-            <template v-if="selectedTx.paymentProvider || selectedTx.paymentError">
-              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Оплата</h5>
-              <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
-                <div v-if="selectedTx.paymentProvider">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Провайдер</dt>
-                  <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.paymentProvider }}</dd>
-                </div>
-                <div v-if="selectedTx.paymentSessionId">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Сессия</dt>
-                  <dd class="font-mono text-xs text-fuel-forest break-all">{{ selectedTx.paymentSessionId }}</dd>
-                </div>
-                <div v-if="selectedTx.paymentError" class="col-span-2">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Ошибка оплаты</dt>
-                  <dd class="font-karla text-sm text-red-600">{{ selectedTx.paymentError }}</dd>
-                </div>
-              </dl>
-            </template>
-
-            <!-- Фискализация -->
-            <template v-if="selectedTx.receiptNumber || selectedTx.fiscalError">
-              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Фискализация</h5>
-              <dl class="grid grid-cols-1 gap-y-3 mb-6">
-                <div v-if="selectedTx.receiptNumber">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Номер чека</dt>
-                  <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.receiptNumber }}</dd>
-                </div>
-                <div v-if="selectedTx.fiscalError">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Ошибка ККТ</dt>
-                  <dd class="font-karla text-sm text-red-600">{{ selectedTx.fiscalError }}</dd>
-                </div>
-              </dl>
-            </template>
-
-            <!-- Налив -->
-            <template v-if="selectedTx.fuelingSessionId || selectedTx.dispensedLiters > 0 || selectedTx.fuelingError">
-              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Отпуск топлива</h5>
-              <dl class="grid grid-cols-2 gap-x-6 gap-y-3 mb-6">
-                <div v-if="selectedTx.fuelingSessionId" class="col-span-2">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Сессия</dt>
-                  <dd class="font-mono text-xs text-fuel-forest break-all">{{ selectedTx.fuelingSessionId }}</dd>
-                </div>
-                <div v-if="selectedTx.dispensedLiters > 0">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Отпущено, л</dt>
-                  <dd class="font-rubik font-semibold text-fuel-forest">{{ selectedTx.dispensedLiters.toFixed(3) }}</dd>
-                </div>
-                <div v-if="selectedTx.dispenseComplete">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Завершён</dt>
-                  <dd class="font-karla text-sm text-fuel-forest">
-                    {{ selectedTx.dispensePartial ? 'Частично' : 'Полностью' }}
-                  </dd>
-                </div>
-                <div v-if="selectedTx.fuelingError" class="col-span-2">
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Ошибка налива</dt>
-                  <dd class="font-karla text-sm text-red-600">{{ selectedTx.fuelingError }}</dd>
-                </div>
-              </dl>
-            </template>
-
-            <!-- Прочее -->
-            <template v-if="selectedTx.abandonReason">
-              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3 pb-1 border-b border-fuel-olive/15">Прочее</h5>
-              <dl class="grid grid-cols-1 gap-y-3">
-                <div>
-                  <dt class="font-karla text-xs uppercase tracking-widest text-fuel-olive mb-1">Причина отмены</dt>
-                  <dd class="font-karla text-sm text-fuel-forest">{{ selectedTx.abandonReason }}</dd>
-                </div>
-              </dl>
-            </template>
+            <!-- Для старых транзакций без журнала -->
+            <div v-else class="text-center py-4">
+              <p class="font-karla text-sm text-fuel-olive/60">
+                История событий для этой транзакции недоступна
+              </p>
+            </div>
           </template>
         </div>
+
       </div>
     </div>
   </Teleport>

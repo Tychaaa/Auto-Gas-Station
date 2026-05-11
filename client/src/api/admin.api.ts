@@ -180,6 +180,12 @@ export interface AdminTransactionView {
   errorMessage: string
 }
 
+export interface AdminTransactionEventView {
+  eventType: string
+  occurredAt: string
+  detail?: string
+}
+
 export interface AdminTransactionDetailsView {
   id: string
   createdAt: string
@@ -218,6 +224,8 @@ export interface AdminTransactionDetailsView {
   fuelingError: string
   // Прочее
   abandonReason: string
+  // Журнал событий
+  events: AdminTransactionEventView[]
 }
 
 interface AdminTransactionsResponse {
