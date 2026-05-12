@@ -16,6 +16,7 @@ import (
 	"AUTO-GAS-STATION/server/internal/adapter/payment"
 	"AUTO-GAS-STATION/server/internal/adapter/watchdog"
 	"AUTO-GAS-STATION/server/internal/config"
+	"AUTO-GAS-STATION/server/internal/database"
 	"AUTO-GAS-STATION/server/internal/repository"
 	"AUTO-GAS-STATION/server/internal/service"
 	transporthttp "AUTO-GAS-STATION/server/internal/transport/http"
@@ -36,16 +37,12 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
+	if err := database.Migrate(context.Background(), cfg.DBPath); err != nil {
+		return nil, fmt.Errorf("run migrations: %w", err)
+	}
+
 	priceRepo, err := repository.NewSQLitePriceRepository(cfg.DBPath)
 	if err != nil {
-		return nil, err
-	}
-	if err := priceRepo.InitSchema(); err != nil {
-		_ = priceRepo.Close()
-		return nil, err
-	}
-	if err := priceRepo.SeedIfEmpty(service.DefaultFuelCatalog); err != nil {
-		_ = priceRepo.Close()
 		return nil, err
 	}
 
@@ -54,13 +51,28 @@ func New(cfg Config) (*App, error) {
 		_ = priceRepo.Close()
 		return nil, err
 	}
-	if err := txRepo.InitSchema(); err != nil {
-		_ = txRepo.Close()
-		_ = priceRepo.Close()
-		return nil, err
-	}
 
 	priceService := service.NewPriceService(priceRepo)
+	kioskService := service.NewKioskService()
+
+	seeder := service.NewPricingSeeder(priceService, cfg.PricingSeedPath)
+	if err := seeder.SeedIfEmpty(context.Background()); err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("seed prices: %w", err)
+	}
+
+	hasPrices, err := priceService.HasAnyVersion(context.Background())
+	if err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("check prices: %w", err)
+	}
+	if !hasPrices {
+		slog.Warn("no price versions found, setting kiosk to maintenance", "reason", service.KioskReasonNoPrices)
+		kioskService.SetMaintenance(true, service.KioskReasonNoPrices)
+	}
+
 	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
 		Port:     cfg.FuelSerial.Port,
@@ -71,6 +83,7 @@ func New(cfg Config) (*App, error) {
 		Address:  cfg.FuelSerial.Address,
 	})
 	if err != nil {
+		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
 	}
@@ -80,6 +93,7 @@ func New(cfg Config) (*App, error) {
 		Logger: slog.Default(),
 	})
 	if err != nil {
+		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, fmt.Errorf("init fiscal adapter: %w", err)
 	}
@@ -90,10 +104,10 @@ func New(cfg Config) (*App, error) {
 	}
 	fiscalService := service.NewFiscalService(txRepo, fiscalAdapter)
 	paymentService := service.NewPaymentService(txRepo, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
-	kioskService := service.NewKioskService()
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
 	if err != nil {
+		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
 	}
@@ -106,7 +120,7 @@ func New(cfg Config) (*App, error) {
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter)
-	adminHandler := handlers.NewAdminHandler(priceService, txRepo)
+	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
