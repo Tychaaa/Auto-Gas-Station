@@ -15,10 +15,11 @@ import (
 type AdminHandler struct {
 	prices *service.PriceService
 	txRepo service.TransactionRepository
+	kiosk  *service.KioskService
 }
 
-func NewAdminHandler(prices *service.PriceService, txRepo service.TransactionRepository) *AdminHandler {
-	return &AdminHandler{prices: prices, txRepo: txRepo}
+func NewAdminHandler(prices *service.PriceService, txRepo service.TransactionRepository, kiosk *service.KioskService) *AdminHandler {
+	return &AdminHandler{prices: prices, txRepo: txRepo, kiosk: kiosk}
 }
 
 func (h *AdminHandler) ListPriceVersions(c *gin.Context) {
@@ -56,6 +57,9 @@ func (h *AdminHandler) CreatePriceVersion(c *gin.Context) {
 	if err != nil {
 		c.JSON(nethttp.StatusBadRequest, gin.H{"error": err.Error()})
 		return
+	}
+	if h.kiosk != nil {
+		h.kiosk.ClearMaintenanceIfReason(service.KioskReasonNoPrices)
 	}
 	c.JSON(nethttp.StatusCreated, version)
 }
