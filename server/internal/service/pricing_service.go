@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"math"
@@ -17,18 +18,13 @@ const (
 	DefaultPricingCurrency   = "RUB"
 )
 
-var DefaultFuelCatalog = []model.SeededFuelPrice{
-	{FuelType: "\u0410\u0418-92", DisplayName: "\u0410\u0418-92", Grade: "\u0420\u0435\u0433\u0443\u043b\u044f\u0440\u043d\u044b\u0439", PriceMinor: 6153},
-	{FuelType: "\u0410\u0418-95", DisplayName: "\u0410\u0418-95", Grade: "\u0423\u043b\u0443\u0447\u0448\u0435\u043d\u043d\u044b\u0439", PriceMinor: 6514},
-	{FuelType: "\u0410\u0418-100", DisplayName: "\u0410\u0418-100", Grade: "\u041f\u0440\u0435\u043c\u0438\u0443\u043c", PriceMinor: 8780},
-	{FuelType: "\u0414\u0422", DisplayName: "\u0414\u0422", Grade: "\u0414\u0438\u0437\u0435\u043b\u044c", PriceMinor: 7861},
-}
-
 type PriceRepository interface {
 	GetCurrentPrice(now time.Time, fuelType string) (model.FuelPriceSnapshot, error)
 	ListCurrentPrices(now time.Time) ([]model.FuelPriceSnapshot, error)
 	ListVersions(limit int) ([]model.PriceVersion, error)
 	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []model.SeededFuelPrice) (model.PriceVersion, error)
+	HasAnyVersion() (bool, error)
+	LatestCatalog() ([]model.SeededFuelPrice, error)
 }
 
 type PriceService struct {
@@ -55,6 +51,26 @@ func (s *PriceService) ListVersions(limit int) ([]model.PriceVersion, error) {
 	return s.repo.ListVersions(limit)
 }
 
+// HasAnyVersion проверяет, есть ли в базе хотя бы одна версия цен
+func (s *PriceService) HasAnyVersion(ctx context.Context) (bool, error) {
+	return s.repo.HasAnyVersion()
+}
+
+// SeedInitialVersion добавляет первую версию цен из seed-файла
+// Возвращает ошибку, если версии уже существуют
+func (s *PriceService) SeedInitialVersion(ctx context.Context, versionTag string, items []model.SeededFuelPrice) (model.PriceVersion, error) {
+	ok, err := s.repo.HasAnyVersion()
+	if err != nil {
+		return model.PriceVersion{}, fmt.Errorf("check existing versions: %w", err)
+	}
+	if ok {
+		return model.PriceVersion{}, errors.New("price versions already exist, seed skipped")
+	}
+	return s.repo.CreatePriceVersion(versionTag, time.Now().UTC(), items)
+}
+
+// CreatePriceVersion создаёт новую версию цен на основе каталога из последней существующей версии
+// Если версий ещё нет, нужно сначала вызвать SeedInitialVersion
 func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (model.PriceVersion, error) {
 	versionTag = strings.TrimSpace(versionTag)
 	if versionTag == "" {
@@ -64,19 +80,27 @@ func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.
 		return model.PriceVersion{}, errors.New("effectiveFrom is required")
 	}
 
-	items := make([]model.SeededFuelPrice, 0, len(DefaultFuelCatalog))
-	for _, catalog := range DefaultFuelCatalog {
-		priceRub, ok := pricesPerLiter[catalog.FuelType]
+	catalog, err := s.repo.LatestCatalog()
+	if err != nil {
+		return model.PriceVersion{}, fmt.Errorf("load fuel catalog: %w", err)
+	}
+	if len(catalog) == 0 {
+		return model.PriceVersion{}, errors.New("fuel catalog is not initialised: seed initial prices before creating new versions")
+	}
+
+	items := make([]model.SeededFuelPrice, 0, len(catalog))
+	for _, entry := range catalog {
+		priceRub, ok := pricesPerLiter[entry.FuelType]
 		if !ok {
-			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q is required", catalog.FuelType)
+			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q is required", entry.FuelType)
 		}
 		if priceRub <= 0 {
-			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q must be > 0", catalog.FuelType)
+			return model.PriceVersion{}, fmt.Errorf("price for fuel type %q must be > 0", entry.FuelType)
 		}
 		items = append(items, model.SeededFuelPrice{
-			FuelType:    catalog.FuelType,
-			DisplayName: catalog.DisplayName,
-			Grade:       catalog.Grade,
+			FuelType:    entry.FuelType,
+			DisplayName: entry.DisplayName,
+			Grade:       entry.Grade,
 			PriceMinor:  int64(math.Round(priceRub * 100)),
 		})
 	}

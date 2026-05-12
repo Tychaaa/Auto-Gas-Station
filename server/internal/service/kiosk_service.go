@@ -6,6 +6,9 @@ import (
 	"time"
 )
 
+// KioskReasonNoPrices - причина maintenance, выставляемая автоматически при старте без версий цен
+const KioskReasonNoPrices = "Цены не настроены: добавьте версию цен через админ-панель"
+
 type KioskState struct {
 	Maintenance bool      `json:"maintenance"`
 	Reason      string    `json:"reason"`
@@ -103,6 +106,29 @@ func (s *KioskService) Unsubscribe(id uint64) {
 		close(ch)
 	}
 	s.subsMu.Unlock()
+}
+
+// ClearMaintenanceIfReason снимает maintenance только если текущая причина совпадает с переданной
+// Не затрагивает maintenance, включённый по другим причинам (watchdog, ручной admin)
+func (s *KioskService) ClearMaintenanceIfReason(reason string) bool {
+	s.mu.Lock()
+	if !s.maintenance || s.reason != reason {
+		s.mu.Unlock()
+		return false
+	}
+	s.maintenance = false
+	s.reason = ""
+	s.updatedAt = time.Now().UTC()
+	state := KioskState{
+		Maintenance: s.maintenance,
+		Reason:      s.reason,
+		Screen:      s.screen,
+		UpdatedAt:   s.updatedAt,
+	}
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	return true
 }
 
 func (s *KioskService) broadcast(state KioskState) {

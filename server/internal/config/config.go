@@ -36,6 +36,7 @@ type Config struct {
 	Port                    string
 	AllowedOrigins          []string
 	DBPath                  string
+	PricingSeedPath         string
 	SelectionPriceLock      time.Duration
 	InactivityTimeout       time.Duration
 	InactivitySweepInterval time.Duration
@@ -110,6 +111,7 @@ func Load() (Config, error) {
 		Port:                    envString("PORT", "8080"),
 		AllowedOrigins:          resolveAllowedOrigins(mode),
 		DBPath:                  envString("DB_PATH", service.DefaultDBPath),
+		PricingSeedPath:         envString("PRICING_SEED_PATH", "configs/seed_prices.json"),
 		SelectionPriceLock:      lockTTL,
 		InactivityTimeout:       inactivityTTL,
 		InactivitySweepInterval: sweepInterval,

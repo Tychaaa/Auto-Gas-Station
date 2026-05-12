@@ -1,0 +1,9 @@
+{
+  "versionTag": "v1-initial",
+  "fuels": [
+    { "fuelType": "АИ-92",  "displayName": "АИ-92",  "grade": "Регулярный", "pricePerLiter": 61.53 },
+    { "fuelType": "АИ-95",  "displayName": "АИ-95",  "grade": "Улучшенный", "pricePerLiter": 65.14 },
+    { "fuelType": "АИ-100", "displayName": "АИ-100", "grade": "Премиум",    "pricePerLiter": 87.80 },
+    { "fuelType": "ДТ",     "displayName": "ДТ",     "grade": "Дизель",     "pricePerLiter": 78.61 }
+  ]
+}
