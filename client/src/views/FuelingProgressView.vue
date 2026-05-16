@@ -7,6 +7,11 @@ import { useTransactionFlowStore } from '@/stores'
 
 const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Заправка'] as const
 
+const rubFormatter = new Intl.NumberFormat('ru-RU', {
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
+})
+
 type ScreenMode = 'ready' | 'no-transaction' | 'wrong-stage'
 
 interface FuelingUiState {
@@ -14,6 +19,8 @@ interface FuelingUiState {
   description: string
   providerStatus: string
   dispensedLiters: number
+  dispensedAmount: number
+  pricePerLiter: number
   targetLiters: number
   progressPercent: number
   badgeLabel: string
@@ -81,6 +88,8 @@ const uiState = computed<FuelingUiState>(() => {
       description: 'Для просмотра прогресса сначала начните сценарий заправки.',
       providerStatus: 'none',
       dispensedLiters: 0,
+      dispensedAmount: 0,
+      pricePerLiter: 0,
       targetLiters: 0,
       progressPercent: 0,
       badgeLabel: 'Нет данных',
@@ -91,6 +100,8 @@ const uiState = computed<FuelingUiState>(() => {
   const targetLiters = tx.liters > 0 ? tx.liters : Math.max(store.orderSummary.liters ?? 0, 0)
   const fuelingStatus = tx.fuelingStatus
   const providerStatusLabel = formatProviderStatus(fuelingStatus)
+  const pricePerLiter = (tx.unitPriceMinor ?? 0) / 100
+  const dispensedAmount = tx.dispensedLiters * pricePerLiter
   const progressByVolume =
     targetLiters > 0
       ? Math.min(100, Math.max(0, Math.round((tx.dispensedLiters / targetLiters) * 100)))
@@ -102,6 +113,8 @@ const uiState = computed<FuelingUiState>(() => {
       description: errorMessage.value || 'Произошла ошибка топливного контура. Обратитесь к оператору.',
       providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
+      dispensedAmount,
+      pricePerLiter,
       targetLiters,
       progressPercent: progressByVolume,
       badgeLabel: 'Ошибка процесса',
@@ -115,6 +128,8 @@ const uiState = computed<FuelingUiState>(() => {
       description: 'Операция полностью завершена. Спасибо за использование сервиса.',
       providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
+      dispensedAmount,
+      pricePerLiter,
       targetLiters,
       progressPercent: 100,
       badgeLabel: 'Завершено',
@@ -128,6 +143,8 @@ const uiState = computed<FuelingUiState>(() => {
       description: 'Колонка принимает команду. Пожалуйста, зафиксируйте пистолет в баке.',
       providerStatus: providerStatusLabel,
       dispensedLiters: tx.dispensedLiters,
+      dispensedAmount,
+      pricePerLiter,
       targetLiters,
       progressPercent: tx.dispensedLiters > 0 ? progressByVolume : 10,
       badgeLabel: 'Подготовка колонки',
@@ -137,9 +154,11 @@ const uiState = computed<FuelingUiState>(() => {
 
   return {
     title: 'Идет отпуск топлива',
-    description: 'Топливо подается. Следите за индикатором налива.',
+    description: 'Топливо подается. Следите за прогрессом заправки.',
     providerStatus: providerStatusLabel,
     dispensedLiters: tx.dispensedLiters,
+    dispensedAmount,
+    pricePerLiter,
     targetLiters,
     progressPercent: progressByVolume,
     badgeLabel: 'Отпуск топлива',
@@ -243,15 +262,15 @@ onUnmounted(() => {
         <div class="grid grid-cols-3 gap-4 mb-8">
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
             <p class="font-karla text-xs uppercase tracking-widest text-fuel-olive/80 mb-1">
-              Статус колонки
+              Отпущено, ₽
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ uiState.providerStatus }}
+              {{ rubFormatter.format(uiState.dispensedAmount) }} ₽
             </p>
           </article>
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
             <p class="font-karla text-xs uppercase tracking-widest text-fuel-olive/80 mb-1">
-              Отпущено
+              Отпущено, л
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
               {{ uiState.dispensedLiters.toFixed(2) }} л
@@ -259,10 +278,10 @@ onUnmounted(() => {
           </article>
           <article class="rounded-xl bg-fuel-cream border border-fuel-olive/20 p-4">
             <p class="font-karla text-xs uppercase tracking-widest text-fuel-olive/80 mb-1">
-              План
+              Цена за литр
             </p>
             <p class="font-rubik text-xl font-semibold text-fuel-forest">
-              {{ uiState.targetLiters.toFixed(2) }} л
+              {{ rubFormatter.format(uiState.pricePerLiter) }} ₽/л
             </p>
           </article>
         </div>
