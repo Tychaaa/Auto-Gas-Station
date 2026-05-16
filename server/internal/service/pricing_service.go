@@ -79,7 +79,7 @@ func (s *PriceService) SeedInitialVersion(ctx context.Context, versionTag string
 func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (model.PriceVersion, error) {
 	versionTag = strings.TrimSpace(versionTag)
 	if versionTag == "" {
-		versionTag = fmt.Sprintf("v-%s", time.Now().UTC().Format("20060102-150405"))
+		versionTag = time.Now().UTC().Format(time.RFC3339)
 	}
 	if effectiveFrom.IsZero() {
 		return model.PriceVersion{}, errors.New("effectiveFrom is required")
