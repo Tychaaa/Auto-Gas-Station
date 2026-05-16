@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"regexp"
+	"sync"
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
@@ -24,6 +25,20 @@ type HeaderLinesRepository interface {
 	Replace(ctx context.Context, lines []model.HeaderLine) error
 	Create(ctx context.Context, line model.HeaderLine) (model.HeaderLine, error)
 	Update(ctx context.Context, line model.HeaderLine) error
+	Delete(ctx context.Context, id int64) error
+}
+
+// KKTShiftReportRepository - интерфейс хранилища записей о закрытиях смены (Z-отчёты).
+type KKTShiftReportRepository interface {
+	Save(ctx context.Context, rep model.KKTShiftReport) (int64, error)
+	List(ctx context.Context, limit, offset int) ([]model.KKTShiftReport, error)
+	Delete(ctx context.Context, id int64) error
+}
+
+// KKTCalcReportRepository - интерфейс хранилища отчётов о состоянии расчётов.
+type KKTCalcReportRepository interface {
+	Save(ctx context.Context, rep model.KKTCalcReport) (int64, error)
+	List(ctx context.Context, limit, offset int) ([]model.KKTCalcReport, error)
 	Delete(ctx context.Context, id int64) error
 }
 
@@ -51,13 +66,17 @@ var autoCloseRe = regexp.MustCompile(`^([01]\d|2[0-3]):[0-5]\d$`)
 // - ручное закрытие из адм.панели
 // - предоставление заголовков чека адаптеру (реализует fiscal.HeaderLinesProvider)
 // - персистентность состояния смены (реализует fiscal.ShiftStateSink)
+// - хранение истории Z-отчётов и отчётов о расчётах (реализует fiscal.ZReportSink)
 type ShiftService struct {
-	adapter     fiscal.ShiftAdapter
-	shiftRepo   KKTShiftStateRepository
-	headerRepo  HeaderLinesRepository
-	kiosk       *KioskService
-	log         *slog.Logger
-	autoCloseAt string // "HH:MM"
+	adapter         fiscal.ShiftAdapter
+	shiftRepo       KKTShiftStateRepository
+	headerRepo      HeaderLinesRepository
+	shiftReportRepo KKTShiftReportRepository
+	calcReportRepo  KKTCalcReportRepository
+	kiosk           *KioskService
+	log             *slog.Logger
+	autoCloseAt     string // "HH:MM"
+	opMu            sync.Mutex
 
 	cancel context.CancelFunc
 	done   chan struct{}
@@ -69,6 +88,8 @@ func NewShiftService(
 	adapter fiscal.ShiftAdapter,
 	shiftRepo KKTShiftStateRepository,
 	headerRepo HeaderLinesRepository,
+	shiftReportRepo KKTShiftReportRepository,
+	calcReportRepo KKTCalcReportRepository,
 	kiosk *KioskService,
 	log *slog.Logger,
 	cfg ShiftServiceConfig,
@@ -79,12 +100,14 @@ func NewShiftService(
 		autoCloseAt = "00:00"
 	}
 	return &ShiftService{
-		adapter:     adapter,
-		shiftRepo:   shiftRepo,
-		headerRepo:  headerRepo,
-		kiosk:       kiosk,
-		log:         log.With(slog.String("component", "shift_service")),
-		autoCloseAt: autoCloseAt,
+		adapter:         adapter,
+		shiftRepo:       shiftRepo,
+		headerRepo:      headerRepo,
+		shiftReportRepo: shiftReportRepo,
+		calcReportRepo:  calcReportRepo,
+		kiosk:           kiosk,
+		log:             log.With(slog.String("component", "shift_service")),
+		autoCloseAt:     autoCloseAt,
 	}
 }
 
@@ -155,9 +178,34 @@ func (s *ShiftService) Status(ctx context.Context) (ShiftStatusSnapshot, error) 
 	return snap, nil
 }
 
+// OpenNow открывает смену ККТ вручную.
+func (s *ShiftService) OpenNow(ctx context.Context) (fiscal.ShiftOpenResult, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
+	if s.adapter == nil {
+		return fiscal.ShiftOpenResult{}, fmt.Errorf("shift adapter not initialized")
+	}
+	result, err := s.adapter.OpenShift(ctx)
+	if err != nil {
+		return fiscal.ShiftOpenResult{}, err
+	}
+	if err := s.shiftRepo.Save(ctx, model.KKTShiftState{ShiftNumber: result.ShiftNumber, OpenedAt: time.Now()}); err != nil {
+		s.log.Warn("shift_service.save_state_failed", slog.Any("err", err))
+	}
+	s.log.Info("shift_service.opened",
+		slog.Int("shift_number", int(result.ShiftNumber)),
+		slog.Uint64("fd_number", uint64(result.FDNumber)),
+		slog.Uint64("fiscal_sign", uint64(result.FiscalSign)),
+	)
+	return result, nil
+}
+
 // CloseNow закрывает смену Z-отчётом немедленно.
 // Устанавливает kiosk maintenance на время закрытия.
+// Запись Z-отчёта производится автоматически через ZReportSink внутри адаптера.
 func (s *ShiftService) CloseNow(ctx context.Context) (fiscal.ZReportResult, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	if s.adapter == nil {
 		return fiscal.ZReportResult{}, fmt.Errorf("shift adapter not initialized")
 	}
@@ -185,12 +233,64 @@ func (s *ShiftService) CloseNow(ctx context.Context) (fiscal.ZReportResult, erro
 	return result, nil
 }
 
-// CalcStatusReport запрашивает отчёт о состоянии расчётов у ККТ.
+// CalcStatusReport запрашивает отчёт о состоянии расчётов у ККТ и сохраняет его в историю.
 func (s *ShiftService) CalcStatusReport(ctx context.Context) (fiscal.CalcStatusResult, error) {
+	s.opMu.Lock()
+	defer s.opMu.Unlock()
 	if s.adapter == nil {
 		return fiscal.CalcStatusResult{}, fmt.Errorf("shift adapter not initialized")
 	}
-	return s.adapter.CalcStatusReport(ctx)
+	result, err := s.adapter.CalcStatusReport(ctx)
+	if err != nil {
+		return fiscal.CalcStatusResult{}, err
+	}
+	rec := model.KKTCalcReport{
+		FDNumber:             result.FDNumber,
+		FiscalSign:           result.FiscalSign,
+		UnconfirmedCount:     result.UnconfirmedCount,
+		FirstUnconfirmedDate: result.FirstUnconfirmedDate,
+		CreatedAt:            time.Now(),
+	}
+	if result.HasDateTime {
+		dt := result.DateTime
+		rec.KKTDateTime = &dt
+	}
+	if _, saveErr := s.calcReportRepo.Save(ctx, rec); saveErr != nil {
+		s.log.Warn("shift_service.save_calc_report_failed", slog.Any("err", saveErr))
+	}
+	return result, nil
+}
+
+// SaveZReport реализует fiscal.ZReportSink — сохраняет запись о закрытии смены.
+// Вызывается автоматически из KKTAdapter после успешного закрытия.
+func (s *ShiftService) SaveZReport(ctx context.Context, shiftNumber uint16, fdNumber, fiscalSign uint32, closedAt time.Time) error {
+	_, err := s.shiftReportRepo.Save(ctx, model.KKTShiftReport{
+		ShiftNumber: shiftNumber,
+		FDNumber:    fdNumber,
+		FiscalSign:  fiscalSign,
+		ClosedAt:    closedAt,
+	})
+	return err
+}
+
+// ListShiftReports возвращает историю Z-отчётов закрытия смены.
+func (s *ShiftService) ListShiftReports(ctx context.Context, limit, offset int) ([]model.KKTShiftReport, error) {
+	return s.shiftReportRepo.List(ctx, limit, offset)
+}
+
+// DeleteShiftReport удаляет запись из истории Z-отчётов.
+func (s *ShiftService) DeleteShiftReport(ctx context.Context, id int64) error {
+	return s.shiftReportRepo.Delete(ctx, id)
+}
+
+// ListCalcReports возвращает историю отчётов о состоянии расчётов.
+func (s *ShiftService) ListCalcReports(ctx context.Context, limit, offset int) ([]model.KKTCalcReport, error) {
+	return s.calcReportRepo.List(ctx, limit, offset)
+}
+
+// DeleteCalcReport удаляет запись из истории отчётов о состоянии расчётов.
+func (s *ShiftService) DeleteCalcReport(ctx context.Context, id int64) error {
+	return s.calcReportRepo.Delete(ctx, id)
 }
 
 // --- Заголовочные строки (CRUD) ---

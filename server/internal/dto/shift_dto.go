@@ -50,3 +50,30 @@ type UpdateHeaderLineRequest struct {
 	Position int    `json:"position"`
 	Text     string `json:"text"`
 }
+
+// OpenShiftResponse - ответ POST /admin/shift/open.
+type OpenShiftResponse struct {
+	ShiftNumber uint16 `json:"shift_number"`
+	FDNumber    uint32 `json:"fd_number"`
+	FiscalSign  uint32 `json:"fiscal_sign"`
+}
+
+// ShiftReportDTO - запись из истории Z-отчётов.
+type ShiftReportDTO struct {
+	ID          int64  `json:"id"`
+	ShiftNumber uint16 `json:"shift_number"`
+	FDNumber    uint32 `json:"fd_number"`
+	FiscalSign  uint32 `json:"fiscal_sign"`
+	ClosedAt    string `json:"closed_at"` // RFC3339
+}
+
+// CalcReportDTO - запись из истории отчётов о состоянии расчётов.
+type CalcReportDTO struct {
+	ID                   int64  `json:"id"`
+	FDNumber             uint32 `json:"fd_number"`
+	FiscalSign           uint32 `json:"fiscal_sign"`
+	UnconfirmedCount     uint32 `json:"unconfirmed_count"`
+	FirstUnconfirmedDate string `json:"first_unconfirmed_date,omitempty"` // "YYYY-MM-DD"
+	DateTime             string `json:"datetime,omitempty"`               // RFC3339
+	CreatedAt            string `json:"created_at"`                       // RFC3339
+}
