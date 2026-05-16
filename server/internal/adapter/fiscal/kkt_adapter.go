@@ -16,14 +16,16 @@ type KKTAdapterOptions struct {
 	Logger              *slog.Logger
 	HeaderLinesProvider HeaderLinesProvider // optional; nil = заголовки не печатаются
 	ShiftStateSink      ShiftStateSink      // optional; nil = состояние смены не персистируется
+	ZReportSink         ZReportSink         // optional; nil = Z-отчёты не сохраняются в БД
 }
 
 // KKTAdapter - реализация Adapter поверх ККТ PayOnline-01-ФА.
 type KKTAdapter struct {
-	cfg  Config
-	log  *slog.Logger
-	hlp  HeaderLinesProvider
-	sink ShiftStateSink
+	cfg   Config
+	log   *slog.Logger
+	hlp   HeaderLinesProvider
+	sink  ShiftStateSink
+	zsink ZReportSink
 }
 
 // NewKKTAdapter создаёт новый адаптер. Реальное соединение с ККТ открывается на
@@ -36,10 +38,11 @@ func NewKKTAdapter(opts KKTAdapterOptions) (*KKTAdapter, error) {
 		return nil, fmt.Errorf("fiscal: invalid KKT config: %w", err)
 	}
 	return &KKTAdapter{
-		cfg:  opts.Config,
-		log:  opts.Logger.With(slog.String("component", "fiscal_kkt")),
-		hlp:  opts.HeaderLinesProvider,
-		sink: opts.ShiftStateSink,
+		cfg:   opts.Config,
+		log:   opts.Logger.With(slog.String("component", "fiscal_kkt")),
+		hlp:   opts.HeaderLinesProvider,
+		sink:  opts.ShiftStateSink,
+		zsink: opts.ZReportSink,
 	}, nil
 }
 
@@ -183,7 +186,7 @@ func (a *KKTAdapter) ensureShiftOpen(ctx context.Context, client *kkt.Client, lo
 	switch {
 	case shift.IsExpired():
 		log.Info("kkt.shift_expired_before_fiscal")
-		if err := a.doCloseShift(ctx, client, log); err != nil {
+		if err := a.doCloseShift(ctx, client, log, shift); err != nil {
 			return nil, WrapError(ErrKindOperationFailed, fmt.Errorf("CloseShiftZ (expired): %w", err))
 		}
 		needOpen = true
@@ -197,7 +200,7 @@ func (a *KKTAdapter) ensureShiftOpen(ctx context.Context, client *kkt.Client, lo
 					slog.Time("opened_at", state.OpenedAt),
 					slog.Float64("hours_open", time.Since(state.OpenedAt).Hours()),
 				)
-				if err := a.doCloseShift(ctx, client, log); err != nil {
+				if err := a.doCloseShift(ctx, client, log, shift); err != nil {
 					return nil, WrapError(ErrKindOperationFailed, fmt.Errorf("CloseShiftZ (proactive): %w", err))
 				}
 				needOpen = true
@@ -242,9 +245,11 @@ func (a *KKTAdapter) ensureShiftOpen(ctx context.Context, client *kkt.Client, lo
 	return newShift, nil
 }
 
-// doCloseShift закрывает смену Z-отчётом и очищает персистентное состояние.
-func (a *KKTAdapter) doCloseShift(ctx context.Context, client *kkt.Client, log *slog.Logger) error {
-	log.Info("kkt.shift_close_request")
+// doCloseShift закрывает смену Z-отчётом, очищает персистентное состояние
+// и сохраняет запись о закрытии через ZReportSink.
+// shift - параметры закрываемой смены (нужен для shift_number).
+func (a *KKTAdapter) doCloseShift(ctx context.Context, client *kkt.Client, log *slog.Logger, shift *kkt.ShiftParams) error {
+	log.Info("kkt.shift_close_request", slog.Int("shift_number", int(shift.ShiftNumber)))
 	closeRes, err := client.CloseShiftZ(ctx)
 	if err != nil {
 		return err
@@ -258,6 +263,11 @@ func (a *KKTAdapter) doCloseShift(ctx context.Context, client *kkt.Client, log *
 	if a.sink != nil {
 		if err := a.sink.ClearShiftState(ctx); err != nil {
 			log.Warn("kkt.shift_state_clear_failed", slog.Any("err", err))
+		}
+	}
+	if a.zsink != nil {
+		if err := a.zsink.SaveZReport(ctx, shift.ShiftNumber, closeRes.FDNumber, closeRes.FiscalSign, time.Now()); err != nil {
+			log.Warn("kkt.z_report_save_failed", slog.Any("err", err))
 		}
 	}
 	return nil
@@ -342,6 +352,11 @@ func (a *KKTAdapter) CloseShiftZ(ctx context.Context) (ZReportResult, error) {
 		slog.Uint64("fd_number", uint64(closeRes.FDNumber)),
 		slog.Uint64("fiscal_sign", uint64(closeRes.FiscalSign)),
 	)
+	if a.zsink != nil {
+		if err := a.zsink.SaveZReport(ctx, shift.ShiftNumber, closeRes.FDNumber, closeRes.FiscalSign, time.Now()); err != nil {
+			log.Warn("kkt.z_report_save_failed", slog.Any("err", err))
+		}
+	}
 	return ZReportResult{
 		ShiftNumber: shift.ShiftNumber,
 		FDNumber:    closeRes.FDNumber,

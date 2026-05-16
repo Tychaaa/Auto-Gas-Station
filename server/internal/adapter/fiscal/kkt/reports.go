@@ -24,7 +24,7 @@ func ParseShiftOpenResult(tail []byte) (*ShiftOpenResult, error) {
 		return nil, errors.New("ответ OpenShift пустой после кода ошибки")
 	}
 	r := &ShiftOpenResult{OperatorNumber: tail[0]}
-	if len(tail) >= 15 {
+	if len(tail) >= 14 {
 		fd, err := ReadUint32LE(tail[1:5])
 		if err != nil {
 			return nil, fmt.Errorf("OpenShift FD: %w", err)
@@ -62,7 +62,7 @@ func ParseZReportResult(tail []byte) (*ZReportResult, error) {
 		return nil, errors.New("ответ ZReport пустой после кода ошибки")
 	}
 	r := &ZReportResult{OperatorNumber: tail[0]}
-	if len(tail) >= 15 {
+	if len(tail) >= 14 {
 		fd, err := ReadUint32LE(tail[1:5])
 		if err != nil {
 			return nil, fmt.Errorf("ZReport FD: %w", err)

@@ -65,3 +65,9 @@ type ShiftStateSink interface {
 	SaveShiftOpened(ctx context.Context, shiftNumber uint16, openedAt time.Time) error
 	ClearShiftState(ctx context.Context) error
 }
+
+// ZReportSink - приёмник записей об успешном закрытии смены (Z-отчёты).
+// Реализуется *service.ShiftService.
+type ZReportSink interface {
+	SaveZReport(ctx context.Context, shiftNumber uint16, fdNumber, fiscalSign uint32, closedAt time.Time) error
+}
