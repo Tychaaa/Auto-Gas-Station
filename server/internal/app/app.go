@@ -28,6 +28,7 @@ type App struct {
 	server          *http.Server
 	watchdogService *service.WatchdogService
 	watchdogAdapter watchdog.Adapter
+	shiftService    *service.ShiftService
 }
 
 type Config = config.Config
@@ -52,11 +53,28 @@ func New(cfg Config) (*App, error) {
 		return nil, err
 	}
 
+	kktShiftRepo, err := repository.NewSQLiteKKTShiftRepository(cfg.DBPath)
+	if err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init kkt shift repository: %w", err)
+	}
+
+	headerLinesRepo, err := repository.NewSQLiteHeaderLinesRepository(cfg.DBPath)
+	if err != nil {
+		_ = kktShiftRepo.Close()
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init header lines repository: %w", err)
+	}
+
 	priceService := service.NewPriceService(priceRepo)
 	kioskService := service.NewKioskService()
 
 	seeder := service.NewPricingSeeder(priceService, cfg.PricingSeedPath)
 	if err := seeder.SeedIfEmpty(context.Background()); err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, fmt.Errorf("seed prices: %w", err)
@@ -64,6 +82,8 @@ func New(cfg Config) (*App, error) {
 
 	hasPrices, err := priceService.HasAnyVersion(context.Background())
 	if err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, fmt.Errorf("check prices: %w", err)
@@ -72,6 +92,16 @@ func New(cfg Config) (*App, error) {
 		slog.Warn("no price versions found, setting kiosk to maintenance", "reason", service.KioskReasonNoPrices)
 		kioskService.SetMaintenance(true, service.KioskReasonNoPrices)
 	}
+
+	// ShiftService создаётся до KKTAdapter — adapter будет установлен через SetAdapter.
+	shiftService := service.NewShiftService(
+		nil,
+		kktShiftRepo,
+		headerLinesRepo,
+		kioskService,
+		slog.Default(),
+		service.ShiftServiceConfig{AutoCloseAt: cfg.FiscalKKT.AutoCloseAt},
+	)
 
 	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
@@ -83,20 +113,29 @@ func New(cfg Config) (*App, error) {
 		Address:  cfg.FuelSerial.Address,
 	})
 	if err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
 	}
 
 	fiscalAdapter, err := fiscal.NewKKTAdapter(fiscal.KKTAdapterOptions{
-		Config: cfg.FiscalKKT,
-		Logger: slog.Default(),
+		Config:              cfg.FiscalKKT,
+		Logger:              slog.Default(),
+		HeaderLinesProvider: shiftService,
+		ShiftStateSink:      shiftService,
 	})
 	if err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, fmt.Errorf("init fiscal adapter: %w", err)
 	}
+
+	shiftService.SetAdapter(fiscalAdapter)
+	shiftService.StartAutoClose()
 
 	transactionService := service.NewTransactionService(txRepo, priceService, cfg.SelectionPriceLock)
 	if cfg.InactivitySweepEnabled {
@@ -107,6 +146,8 @@ func New(cfg Config) (*App, error) {
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
 	if err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
@@ -120,7 +161,7 @@ func New(cfg Config) (*App, error) {
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter)
-	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService)
+	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService, shiftService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
@@ -149,6 +190,7 @@ func New(cfg Config) (*App, error) {
 		server:          server,
 		watchdogService: watchdogService,
 		watchdogAdapter: watchdogAdapter,
+		shiftService:    shiftService,
 	}, nil
 }
 
@@ -161,6 +203,16 @@ func (a *App) Run() error {
 
 func (a *App) Addr() string {
 	return a.server.Addr
+}
+
+// Shutdown корректно останавливает HTTP-сервер и фоновые сервисы.
+func (a *App) Shutdown(ctx context.Context) error {
+	err := a.server.Shutdown(ctx)
+	if a.shiftService != nil {
+		a.shiftService.Stop()
+	}
+	a.watchdogService.Stop()
+	return err
 }
 
 // buildWatchdogAdapter создаёт реальный SerialAdapter если WATCHDOG_MODE=serial,
