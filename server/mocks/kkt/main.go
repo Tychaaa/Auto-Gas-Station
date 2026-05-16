@@ -383,16 +383,18 @@ func (st *kktState) respReportCalcStart() []byte {
 }
 
 func (st *kktState) respReportCalcForm() []byte {
-	// Минимальный ответ: err=0, FD(4), FP(4), unconfirmed_count(3), date_exists=0.
+	// Базовый ответ: err(1) + FD(4) + FP(4) + UnconfirmedCount(4) + FirstUnconfirmedDate(3) = 16 байт.
+	// UnconfirmedCount — uint32 LE (4 байта). FirstUnconfirmedDate — YYMMDD (3 байта),
+	// всегда присутствует в ответе; парсер читает его только если count > 0.
 	fd := atomic.AddUint32(&st.fdCounter, 1)
 	fs := atomic.AddUint32(&st.fsCounter, 1)
 
-	out := make([]byte, 0, 13)
-	out = append(out, 0x00)
-	out = append(out, byte(fd), byte(fd>>8), byte(fd>>16), byte(fd>>24))
-	out = append(out, byte(fs), byte(fs>>8), byte(fs>>16), byte(fs>>24))
-	out = append(out, 0, 0, 0) // unconfirmed_count = 0
-	// дата первого неподтверждённого ФД отсутствует (нет байтов)
+	out := make([]byte, 0, 16)
+	out = append(out, 0x00) // код ошибки = OK
+	out = append(out, byte(fd), byte(fd>>8), byte(fd>>16), byte(fd>>24))   // FD (4 байта)
+	out = append(out, byte(fs), byte(fs>>8), byte(fs>>16), byte(fs>>24))   // FP (4 байта)
+	out = append(out, 0, 0, 0, 0) // unconfirmed_count = 0 (uint32 LE)
+	out = append(out, 0, 0, 0)    // first_unconfirmed_date = 000000 (заглушка)
 	return out
 }
 
