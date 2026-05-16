@@ -9,6 +9,9 @@ import (
 // KioskReasonNoPrices - причина maintenance, выставляемая автоматически при старте без версий цен
 const KioskReasonNoPrices = "Цены не настроены: добавьте версию цен через админ-панель"
 
+// KioskReasonShiftClosing - причина maintenance на время Z-отчёта ККТ.
+const KioskReasonShiftClosing = "Закрытие смены ККТ, подождите…"
+
 type KioskState struct {
 	Maintenance bool      `json:"maintenance"`
 	Reason      string    `json:"reason"`

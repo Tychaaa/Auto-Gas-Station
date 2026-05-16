@@ -1,7 +1,12 @@
 package main
 
 import (
+	"context"
 	"log"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"AUTO-GAS-STATION/server/internal/app"
 	"AUTO-GAS-STATION/server/internal/config"
@@ -25,8 +30,23 @@ func main() {
 		log.Fatalf("app init failed: %v", err)
 	}
 
-	log.Printf("server started on %s", application.Addr())
-	if err := application.Run(); err != nil {
-		log.Fatalf("server failed: %v", err)
+	go func() {
+		log.Printf("server started on %s", application.Addr())
+		if err := application.Run(); err != nil {
+			log.Printf("server stopped: %v", err)
+		}
+	}()
+
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
+	<-quit
+
+	log.Println("shutting down server...")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	if err := application.Shutdown(ctx); err != nil {
+		log.Printf("shutdown error: %v", err)
 	}
+	log.Println("server exited")
 }

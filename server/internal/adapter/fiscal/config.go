@@ -24,6 +24,12 @@ type Config struct {
 	PaymentMethodSign  int
 	PaymentSubjectSign int
 	DumpHex            bool
+	// ShiftMaxHours — порог (в часах) для проактивного перезапуска смены до того,
+	// как ККТ сама её просрочит. Допустимый диапазон: 1..24 (по умолчанию 23).
+	ShiftMaxHours int
+	// AutoCloseAt — время автозакрытия смены в формате "HH:MM" (по умолчанию "00:00").
+	// Передаётся ShiftService; сам адаптер ККТ не использует это поле.
+	AutoCloseAt string
 }
 
 // Address - "host:port" для TCP.
@@ -116,6 +122,9 @@ func (c Config) Validate() error {
 	}
 	if c.PaymentSubjectSign < 1 || c.PaymentSubjectSign > 30 {
 		return fmt.Errorf("KKT payment subject sign=%d out of range 1..30", c.PaymentSubjectSign)
+	}
+	if c.ShiftMaxHours != 0 && (c.ShiftMaxHours < 1 || c.ShiftMaxHours > 24) {
+		return fmt.Errorf("KKT ShiftMaxHours=%d must be 1..24", c.ShiftMaxHours)
 	}
 	return nil
 }

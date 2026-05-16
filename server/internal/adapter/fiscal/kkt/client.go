@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 )
 
@@ -102,6 +103,147 @@ func (c *Client) SendTLV(ctx context.Context, tag uint16, value []byte) error {
 		return err
 	}
 	return nil
+}
+
+// OpenShift - команда 0xE0 "Открыть смену". Формирует ФД «Отчёт об открытии смены».
+// Пароль оператора. Если смена уже открыта — KKT вернёт ошибку 0x13 (IsShiftAlreadyOpen).
+func (c *Client) OpenShift(ctx context.Context) (*ShiftOpenResult, error) {
+	_ = ctx
+	var payload []byte
+	PutPassword(&payload, c.operatorPassword)
+	rsp, err := c.tr.Exchange(CmdOpenShift, payload)
+	if err != nil {
+		return nil, err
+	}
+	tail, err := extractError(CmdOpenShift, rsp)
+	if err != nil {
+		return nil, err
+	}
+	return ParseShiftOpenResult(tail)
+}
+
+// CloseShiftZ - команда 0x41 "Суточный отчёт с гашением". Закрывает смену с печатью на чековой ленте.
+// Пароль системного администратора. Формирует ФД «Отчёт о закрытии смены».
+func (c *Client) CloseShiftZ(ctx context.Context) (*ZReportResult, error) {
+	_ = ctx
+	var payload []byte
+	PutPassword(&payload, c.sysadminPassword)
+	rsp, err := c.tr.Exchange(CmdCloseShiftZ, payload)
+	if err != nil {
+		return nil, err
+	}
+	tail, err := extractError(CmdCloseShiftZ, rsp)
+	if err != nil {
+		return nil, err
+	}
+	return ParseZReportResult(tail)
+}
+
+// PrintString печатает одну строку (до 40 байт WIN1251) на чековой ленте.
+// Команда 0x17 протокола A.2.0. Не требует открытого фискального документа.
+// Флаг 0x02 = только чековая лента (bit 1).
+func (c *Client) PrintString(ctx context.Context, line string) error {
+	_ = ctx
+	var payload []byte
+	PutPassword(&payload, c.operatorPassword)
+	PutByte(&payload, 0x02)
+	if err := PutString1251(&payload, line, 40, true); err != nil {
+		return fmt.Errorf("PrintString encode: %w", err)
+	}
+	rsp, err := c.tr.Exchange(CmdPrintString, payload)
+	if err != nil {
+		return err
+	}
+	if _, err := extractError(CmdPrintString, rsp); err != nil {
+		return err
+	}
+	c.log.Info("kkt.print_line", slog.Int("len", len([]rune(line))), slog.String("text", line))
+	return nil
+}
+
+// PrintLines разбивает text на строки (\n) и печатает каждую через PrintString.
+// Строки длиннее 40 символов переносятся пословно; одиночные слова >40 символов режутся жёстко.
+func (c *Client) PrintLines(ctx context.Context, text string) error {
+	for _, line := range strings.Split(text, "\n") {
+		for _, wrapped := range wrapLine(line, 40) {
+			if err := c.PrintString(ctx, wrapped); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
+// wrapLine разбивает строку на части длиной не более maxLen рун.
+func wrapLine(line string, maxLen int) []string {
+	runes := []rune(line)
+	if len(runes) <= maxLen {
+		return []string{line}
+	}
+	var result []string
+	words := strings.Fields(line)
+	current := ""
+	for _, word := range words {
+		wordRunes := []rune(word)
+		if len(wordRunes) > maxLen {
+			if current != "" {
+				result = append(result, current)
+				current = ""
+			}
+			for len(wordRunes) > maxLen {
+				result = append(result, string(wordRunes[:maxLen]))
+				wordRunes = wordRunes[maxLen:]
+			}
+			current = string(wordRunes)
+			continue
+		}
+		switch {
+		case current == "":
+			current = word
+		case len([]rune(current))+1+len(wordRunes) <= maxLen:
+			current += " " + word
+		default:
+			result = append(result, current)
+			current = word
+		}
+	}
+	if current != "" {
+		result = append(result, current)
+	}
+	return result
+}
+
+// ReportCalcStart - команда FF37h "Начать формирование отчёта о состоянии расчётов".
+// Должна вызываться непосредственно перед ReportCalcForm.
+func (c *Client) ReportCalcStart(ctx context.Context) error {
+	_ = ctx
+	var payload []byte
+	PutPassword(&payload, c.sysadminPassword)
+	rsp, err := c.tr.Exchange(CmdReportCalcStart, payload)
+	if err != nil {
+		return err
+	}
+	if _, err := extractError(CmdReportCalcStart, rsp); err != nil {
+		return err
+	}
+	return nil
+}
+
+// ReportCalcForm - команда FF38h "Сформировать отчёт о состоянии расчётов" (ФФД тип 0x17).
+// Возвращает FD, ФП, количество неподтверждённых документов и дату первого из них.
+func (c *Client) ReportCalcForm(ctx context.Context) (*CalcStatusReport, error) {
+	_ = ctx
+	var payload []byte
+	PutPassword(&payload, c.sysadminPassword)
+	rsp, err := c.tr.Exchange(CmdReportCalcForm, payload)
+	if err != nil {
+		return nil, err
+	}
+	tail, err := extractError(CmdReportCalcForm, rsp)
+	if err != nil {
+		return nil, err
+	}
+	return ParseCalcStatusReport(tail)
 }
 
 // SendTLVString - вспомогательный метод, кодирует строку в WIN1251.

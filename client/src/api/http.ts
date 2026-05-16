@@ -132,6 +132,6 @@ export function httpPut<TResponse>(path: string, body?: unknown, options?: Omit<
 }
 
 // Упрощенный DELETE-запрос
-export function httpDelete<TResponse = void>(path: string, options?: Omit<RequestOptions, 'body'>): Promise<TResponse> {
+export function httpDelete<TResponse>(path: string, options?: Omit<RequestOptions, 'body'>): Promise<TResponse> {
   return httpRequest<TResponse>('DELETE', path, options)
 }
