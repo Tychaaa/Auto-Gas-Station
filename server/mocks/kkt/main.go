@@ -4,9 +4,10 @@
 // "стандартный нижний уровень" (ENQ/ACK/NAK + STX/LEN/CMD/DATA/LRC),
 // которого достаточно для текущей логики server/internal/adapter/fiscal.
 //
-// Поддерживаемые команды: 0x10 (ShortStatus), 0xFF40 (ShiftParams),
-// 0xFF46 (OperationV2), 0xFF45 (CloseReceiptV2). Любую другую команду
-// мок отклоняет кодом ошибки 0x42 ("Команда не поддерживается").
+// Поддерживаемые команды: 0x10 (ShortStatus), 0x17 (PrintString),
+// 0x41 (CloseShiftZ), 0xE0 (OpenShift), 0xFF37 (ReportCalcStart),
+// 0xFF38 (ReportCalcForm), 0xFF40 (ShiftParams), 0xFF45 (CloseReceiptV2),
+// 0xFF46 (OperationV2). Любую другую команду мок отклоняет кодом 0x42.
 package main
 
 import (
@@ -20,6 +21,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -36,10 +38,15 @@ const (
 
 // Поддерживаемые коды команд.
 const (
-	cmdShortStatus  uint16 = 0x0010
-	cmdShiftParams  uint16 = 0xFF40
-	cmdCloseReceipt uint16 = 0xFF45
-	cmdOperationV2  uint16 = 0xFF46
+	cmdShortStatus    uint16 = 0x0010
+	cmdPrintString    uint16 = 0x0017
+	cmdCloseShiftZ    uint16 = 0x0041
+	cmdOpenShift      uint16 = 0x00E0
+	cmdReportCalcStart uint16 = 0xFF37
+	cmdReportCalcForm  uint16 = 0xFF38
+	cmdShiftParams    uint16 = 0xFF40
+	cmdCloseReceipt   uint16 = 0xFF45
+	cmdOperationV2    uint16 = 0xFF46
 )
 
 type scenario string
@@ -52,18 +59,27 @@ const (
 	scenarioCloseError     scenario = "close_error"
 )
 
-type config struct {
+type mockConfig struct {
 	host          string
 	port          int
 	scenario      scenario
-	shiftState    byte
-	shiftNumber   uint16
-	receiptNumber uint16
+	initShiftState byte
+	initShiftNum  uint16
+	initReceiptNum uint16
 	dumpHex       bool
 }
 
+// shiftState хранит мутабельное состояние смены, защищённое мьютексом.
+type shiftState struct {
+	mu            sync.Mutex
+	state         byte   // 0=closed, 1=open, 2=expired
+	shiftNumber   uint16
+	receiptNumber uint16
+}
+
 type kktState struct {
-	cfg       config
+	cfg       mockConfig
+	shift     shiftState
 	fdCounter uint32
 	fsCounter uint32
 }
@@ -73,7 +89,12 @@ func main() {
 	cfg := readConfig()
 
 	state := &kktState{
-		cfg:       cfg,
+		cfg: cfg,
+		shift: shiftState{
+			state:         cfg.initShiftState,
+			shiftNumber:   cfg.initShiftNum,
+			receiptNumber: cfg.initReceiptNum,
+		},
 		fdCounter: 1000,
 		fsCounter: 0xCAFE0000,
 	}
@@ -87,7 +108,7 @@ func main() {
 
 	log.Printf("kkt mock: listening on %s", addr)
 	log.Printf("kkt mock: scenario=%s shift=%s shift_number=%d receipt_number=%d dump_hex=%v",
-		cfg.scenario, shiftStateName(cfg.shiftState), cfg.shiftNumber, cfg.receiptNumber, cfg.dumpHex)
+		cfg.scenario, shiftStateName(cfg.initShiftState), cfg.initShiftNum, cfg.initReceiptNum, cfg.dumpHex)
 
 	for {
 		conn, err := ln.Accept()
@@ -235,6 +256,16 @@ func (st *kktState) buildResponse(cmd uint16) []byte {
 	switch cmd {
 	case cmdShortStatus:
 		return st.respShortStatus()
+	case cmdPrintString:
+		return st.respPrintString()
+	case cmdCloseShiftZ:
+		return st.respCloseShiftZ()
+	case cmdOpenShift:
+		return st.respOpenShift()
+	case cmdReportCalcStart:
+		return st.respReportCalcStart()
+	case cmdReportCalcForm:
+		return st.respReportCalcForm()
 	case cmdShiftParams:
 		return st.respShiftParams()
 	case cmdOperationV2:
@@ -247,8 +278,12 @@ func (st *kktState) buildResponse(cmd uint16) []byte {
 }
 
 func (st *kktState) respShortStatus() []byte {
+	st.shift.mu.Lock()
+	shiftOpen := st.shift.state == 1
+	st.shift.mu.Unlock()
+
 	var flagsLow uint16
-	if st.cfg.shiftState == 1 {
+	if shiftOpen {
 		flagsLow |= 1 << 13
 	}
 
@@ -268,19 +303,96 @@ func (st *kktState) respShortStatus() []byte {
 }
 
 func (st *kktState) respShiftParams() []byte {
-	state := st.cfg.shiftState
-	switch st.cfg.scenario {
-	case scenarioShiftClosed:
-		state = 0
-	case scenarioShiftExpired:
-		state = 2
-	}
+	st.shift.mu.Lock()
+	state := st.shift.state
+	shiftNum := st.shift.shiftNumber
+	receiptNum := st.shift.receiptNumber
+	st.shift.mu.Unlock()
 
 	out := make([]byte, 0, 6)
 	out = append(out, 0x00)
 	out = append(out, state)
-	out = append(out, byte(st.cfg.shiftNumber), byte(st.cfg.shiftNumber>>8))
-	out = append(out, byte(st.cfg.receiptNumber), byte(st.cfg.receiptNumber>>8))
+	out = append(out, byte(shiftNum), byte(shiftNum>>8))
+	out = append(out, byte(receiptNum), byte(receiptNum>>8))
+	return out
+}
+
+func (st *kktState) respOpenShift() []byte {
+	st.shift.mu.Lock()
+	st.shift.state = 1
+	st.shift.shiftNumber++
+	st.shift.receiptNumber = 0
+	shiftNum := st.shift.shiftNumber
+	st.shift.mu.Unlock()
+
+	log.Printf("kkt mock: shift opened shift_number=%d", shiftNum)
+
+	fd := atomic.AddUint32(&st.fdCounter, 1)
+	fs := atomic.AddUint32(&st.fsCounter, 1)
+	now := time.Now()
+
+	out := make([]byte, 0, 15)
+	out = append(out, 0x00)
+	out = append(out, 1) // номер оператора
+	out = append(out, byte(fd), byte(fd>>8), byte(fd>>16), byte(fd>>24))
+	out = append(out, byte(fs), byte(fs>>8), byte(fs>>16), byte(fs>>24))
+	out = append(out,
+		byte(now.Year()%100),
+		byte(now.Month()),
+		byte(now.Day()),
+		byte(now.Hour()),
+		byte(now.Minute()),
+	)
+	return out
+}
+
+func (st *kktState) respCloseShiftZ() []byte {
+	st.shift.mu.Lock()
+	shiftNum := st.shift.shiftNumber
+	st.shift.state = 0
+	st.shift.mu.Unlock()
+
+	log.Printf("kkt mock: shift closed (Z-report) shift_number=%d", shiftNum)
+
+	fd := atomic.AddUint32(&st.fdCounter, 1)
+	fs := atomic.AddUint32(&st.fsCounter, 1)
+	now := time.Now()
+
+	out := make([]byte, 0, 15)
+	out = append(out, 0x00)
+	out = append(out, 1) // номер оператора
+	out = append(out, byte(fd), byte(fd>>8), byte(fd>>16), byte(fd>>24))
+	out = append(out, byte(fs), byte(fs>>8), byte(fs>>16), byte(fs>>24))
+	out = append(out,
+		byte(now.Year()%100),
+		byte(now.Month()),
+		byte(now.Day()),
+		byte(now.Hour()),
+		byte(now.Minute()),
+	)
+	return out
+}
+
+func (st *kktState) respPrintString() []byte {
+	// Подтверждаем без ошибок; реальная ККТ возвращает 1 байт (код ошибки=0).
+	return []byte{0x00}
+}
+
+func (st *kktState) respReportCalcStart() []byte {
+	return []byte{0x00}
+}
+
+func (st *kktState) respReportCalcForm() []byte {
+	// Минимальный ответ: err=0, FD(4), FP(4), unconfirmed_count(3), date_exists=0.
+	fd := atomic.AddUint32(&st.fdCounter, 1)
+	fs := atomic.AddUint32(&st.fsCounter, 1)
+
+	out := make([]byte, 0, 13)
+	out = append(out, 0x00)
+	out = append(out, byte(fd), byte(fd>>8), byte(fd>>16), byte(fd>>24))
+	out = append(out, byte(fs), byte(fs>>8), byte(fs>>16), byte(fs>>24))
+	out = append(out, 0, 0, 0) // unconfirmed_count = 0
+	// дата первого неподтверждённого ФД отсутствует (нет байтов)
 	return out
 }
 
@@ -298,6 +410,10 @@ func (st *kktState) respCloseReceipt() []byte {
 
 	fd := atomic.AddUint32(&st.fdCounter, 1)
 	fs := atomic.AddUint32(&st.fsCounter, 1)
+
+	st.shift.mu.Lock()
+	st.shift.receiptNumber++
+	st.shift.mu.Unlock()
 
 	out := make([]byte, 0, 19)
 	out = append(out, 0x00)
@@ -367,6 +483,16 @@ func cmdName(cmd uint16) string {
 	switch cmd {
 	case cmdShortStatus:
 		return "ShortStatus"
+	case cmdPrintString:
+		return "PrintString"
+	case cmdCloseShiftZ:
+		return "CloseShiftZ"
+	case cmdOpenShift:
+		return "OpenShift"
+	case cmdReportCalcStart:
+		return "ReportCalcStart"
+	case cmdReportCalcForm:
+		return "ReportCalcForm"
 	case cmdShiftParams:
 		return "ShiftParams"
 	case cmdOperationV2:
@@ -392,15 +518,33 @@ func loadEnv() {
 	log.Printf("kkt mock: .env not found, using system environment")
 }
 
-func readConfig() config {
-	return config{
-		host:          envStr("MOCK_KKT_HOST", "127.0.0.1"),
-		port:          envInt("MOCK_KKT_PORT", 7778),
-		scenario:      parseScenario(envStr("MOCK_KKT_SCENARIO", string(scenarioSuccess))),
-		shiftState:    parseShiftState(envStr("MOCK_KKT_SHIFT_STATE", "open")),
-		shiftNumber:   uint16(envInt("MOCK_KKT_SHIFT_NUMBER", 1)),
-		receiptNumber: uint16(envInt("MOCK_KKT_RECEIPT_NUMBER", 1)),
-		dumpHex:       envBool("MOCK_KKT_DUMP_HEX", false),
+func readConfig() mockConfig {
+	sc := parseScenario(envStr("MOCK_KKT_SCENARIO", string(scenarioSuccess)))
+
+	// Если MOCK_KKT_SHIFT_STATE не задан явно, сценарий задаёт начальное состояние смены.
+	shiftStateEnv := strings.TrimSpace(os.Getenv("MOCK_KKT_SHIFT_STATE"))
+	var initState byte
+	if shiftStateEnv != "" {
+		initState = parseShiftState(shiftStateEnv)
+	} else {
+		switch sc {
+		case scenarioShiftClosed:
+			initState = 0
+		case scenarioShiftExpired:
+			initState = 2
+		default:
+			initState = 1
+		}
+	}
+
+	return mockConfig{
+		host:           envStr("MOCK_KKT_HOST", "127.0.0.1"),
+		port:           envInt("MOCK_KKT_PORT", 7778),
+		scenario:       sc,
+		initShiftState: initState,
+		initShiftNum:   uint16(envInt("MOCK_KKT_SHIFT_NUMBER", 1)),
+		initReceiptNum: uint16(envInt("MOCK_KKT_RECEIPT_NUMBER", 1)),
+		dumpHex:        envBool("MOCK_KKT_DUMP_HEX", false),
 	}
 }
 
