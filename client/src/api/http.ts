@@ -37,7 +37,7 @@ export class ApiClientError extends Error {
   }
 }
 
-export type HttpMethod = 'GET' | 'POST' | 'PUT'
+export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'DELETE'
 
 // Общие параметры HTTP-запроса
 export interface RequestOptions {
@@ -129,4 +129,9 @@ export function httpPost<TResponse>(path: string, body?: unknown, options?: Omit
 // Упрощенный PUT-запрос
 export function httpPut<TResponse>(path: string, body?: unknown, options?: Omit<RequestOptions, 'body'>): Promise<TResponse> {
   return httpRequest<TResponse>('PUT', path, { ...options, body })
+}
+
+// Упрощенный DELETE-запрос
+export function httpDelete<TResponse = void>(path: string, options?: Omit<RequestOptions, 'body'>): Promise<TResponse> {
+  return httpRequest<TResponse>('DELETE', path, options)
 }
