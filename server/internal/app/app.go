@@ -68,11 +68,32 @@ func New(cfg Config) (*App, error) {
 		return nil, fmt.Errorf("init header lines repository: %w", err)
 	}
 
+	shiftReportsRepo, err := repository.NewSQLiteKKTShiftReportsRepository(cfg.DBPath)
+	if err != nil {
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init kkt shift reports repository: %w", err)
+	}
+
+	calcReportsRepo, err := repository.NewSQLiteKKTCalcReportsRepository(cfg.DBPath)
+	if err != nil {
+		_ = shiftReportsRepo.Close()
+		_ = headerLinesRepo.Close()
+		_ = kktShiftRepo.Close()
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init kkt calc reports repository: %w", err)
+	}
+
 	priceService := service.NewPriceService(priceRepo)
 	kioskService := service.NewKioskService()
 
 	seeder := service.NewPricingSeeder(priceService, cfg.PricingSeedPath)
 	if err := seeder.SeedIfEmpty(context.Background()); err != nil {
+		_ = calcReportsRepo.Close()
+		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
 		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
@@ -82,6 +103,8 @@ func New(cfg Config) (*App, error) {
 
 	hasPrices, err := priceService.HasAnyVersion(context.Background())
 	if err != nil {
+		_ = calcReportsRepo.Close()
+		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
 		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
@@ -98,6 +121,8 @@ func New(cfg Config) (*App, error) {
 		nil,
 		kktShiftRepo,
 		headerLinesRepo,
+		shiftReportsRepo,
+		calcReportsRepo,
 		kioskService,
 		slog.Default(),
 		service.ShiftServiceConfig{AutoCloseAt: cfg.FiscalKKT.AutoCloseAt},
@@ -113,6 +138,8 @@ func New(cfg Config) (*App, error) {
 		Address:  cfg.FuelSerial.Address,
 	})
 	if err != nil {
+		_ = calcReportsRepo.Close()
+		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
 		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
@@ -125,8 +152,11 @@ func New(cfg Config) (*App, error) {
 		Logger:              slog.Default(),
 		HeaderLinesProvider: shiftService,
 		ShiftStateSink:      shiftService,
+		ZReportSink:         shiftService,
 	})
 	if err != nil {
+		_ = calcReportsRepo.Close()
+		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
 		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()

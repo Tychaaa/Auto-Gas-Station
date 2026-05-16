@@ -379,3 +379,134 @@ func (h *AdminHandler) DeleteHeaderLine(c *gin.Context) {
 	}
 	c.JSON(nethttp.StatusOK, gin.H{"ok": true})
 }
+
+// OpenShift - POST /admin/shift/open
+func (h *AdminHandler) OpenShift(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	result, err := h.shift.OpenNow(c.Request.Context())
+	if err != nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, dto.OpenShiftResponse{
+		ShiftNumber: result.ShiftNumber,
+		FDNumber:    result.FDNumber,
+		FiscalSign:  result.FiscalSign,
+	})
+}
+
+// ListShiftReports - GET /admin/shift/reports
+func (h *AdminHandler) ListShiftReports(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	limit, offset := parseLimitOffset(c, 200, 1000)
+	reps, err := h.shift.ListShiftReports(c.Request.Context(), limit, offset)
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	items := make([]dto.ShiftReportDTO, 0, len(reps))
+	for _, r := range reps {
+		items = append(items, dto.ShiftReportDTO{
+			ID:          r.ID,
+			ShiftNumber: r.ShiftNumber,
+			FDNumber:    r.FDNumber,
+			FiscalSign:  r.FiscalSign,
+			ClosedAt:    r.ClosedAt.Format(time.RFC3339),
+		})
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"items": items})
+}
+
+// DeleteShiftReport - DELETE /admin/shift/reports/:id
+func (h *AdminHandler) DeleteShiftReport(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.shift.DeleteShiftReport(c.Request.Context(), id); errors.Is(err, repository.ErrKKTShiftReportNotFound) {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": "shift report not found"})
+		return
+	} else if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(nethttp.StatusNoContent)
+}
+
+// ListCalcReports - GET /admin/reports/calc-status/history
+func (h *AdminHandler) ListCalcReports(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	limit, offset := parseLimitOffset(c, 200, 1000)
+	reps, err := h.shift.ListCalcReports(c.Request.Context(), limit, offset)
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	items := make([]dto.CalcReportDTO, 0, len(reps))
+	for _, r := range reps {
+		item := dto.CalcReportDTO{
+			ID:               r.ID,
+			FDNumber:         r.FDNumber,
+			FiscalSign:       r.FiscalSign,
+			UnconfirmedCount: r.UnconfirmedCount,
+			CreatedAt:        r.CreatedAt.Format(time.RFC3339),
+		}
+		if r.FirstUnconfirmedDate != nil {
+			item.FirstUnconfirmedDate = r.FirstUnconfirmedDate.Format("2006-01-02")
+		}
+		if r.KKTDateTime != nil {
+			item.DateTime = r.KKTDateTime.Format(time.RFC3339)
+		}
+		items = append(items, item)
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"items": items})
+}
+
+// DeleteCalcReport - DELETE /admin/reports/calc-status/history/:id
+func (h *AdminHandler) DeleteCalcReport(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.shift.DeleteCalcReport(c.Request.Context(), id); errors.Is(err, repository.ErrKKTCalcReportNotFound) {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": "calc report not found"})
+		return
+	} else if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(nethttp.StatusNoContent)
+}
+
+func parseLimitOffset(c *gin.Context, defaultLimit, maxLimit int) (limit, offset int) {
+	limit = defaultLimit
+	if v, err := strconv.Atoi(c.Query("limit")); err == nil && v > 0 {
+		limit = v
+		if limit > maxLimit {
+			limit = maxLimit
+		}
+	}
+	if v, err := strconv.Atoi(c.Query("offset")); err == nil && v >= 0 {
+		offset = v
+	}
+	return
+}
