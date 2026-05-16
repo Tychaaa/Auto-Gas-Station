@@ -211,6 +211,37 @@ ORDER BY fuel_type ASC`
 	return items, nil
 }
 
+func (r *SQLitePriceRepository) DeletePriceVersion(id int64) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin delete version tx: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+
+	if _, err = tx.Exec(`DELETE FROM fuel_prices WHERE price_version_id = ?`, id); err != nil {
+		return fmt.Errorf("delete fuel prices for version %d: %w", id, err)
+	}
+
+	res, err := tx.Exec(`DELETE FROM price_versions WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete price version %d: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("check rows affected: %w", err)
+	}
+	if n == 0 {
+		err = fmt.Errorf("price version %d not found", id)
+		return err
+	}
+
+	return tx.Commit()
+}
+
 func (r *SQLitePriceRepository) GetCurrentPrice(now time.Time, fuelType string) (model.FuelPriceSnapshot, error) {
 	const q = `
 SELECT pv.id, pv.version_tag, pv.effective_from, fp.fuel_type, fp.display_name, fp.grade, fp.price_per_liter_minor, fp.currency

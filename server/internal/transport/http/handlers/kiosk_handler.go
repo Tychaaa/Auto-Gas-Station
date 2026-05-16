@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	nethttp "net/http"
+	"time"
 
 	"AUTO-GAS-STATION/server/internal/dto"
 	"AUTO-GAS-STATION/server/internal/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -31,13 +33,20 @@ func (h *KioskHandler) Events(c *gin.Context) {
 	id, ch := h.kiosk.Subscribe()
 	defer h.kiosk.Unsubscribe(id)
 
+	fmt.Fprintf(c.Writer, "retry: 1000\n\n")
 	writeEvent(c, h.kiosk.Snapshot())
 
 	ctx := c.Request.Context()
+	ticker := time.NewTicker(25 * time.Second)
+	defer ticker.Stop()
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
+		case <-ticker.C:
+			fmt.Fprintf(c.Writer, ": heartbeat\n\n")
+			c.Writer.Flush()
 		case state, ok := <-ch:
 			if !ok {
 				return

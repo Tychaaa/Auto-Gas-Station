@@ -23,6 +23,7 @@ type PriceRepository interface {
 	ListCurrentPrices(now time.Time) ([]model.FuelPriceSnapshot, error)
 	ListVersions(limit int) ([]model.PriceVersion, error)
 	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []model.SeededFuelPrice) (model.PriceVersion, error)
+	DeletePriceVersion(id int64) error
 	HasAnyVersion() (bool, error)
 	LatestCatalog() ([]model.SeededFuelPrice, error)
 }
@@ -51,6 +52,10 @@ func (s *PriceService) ListVersions(limit int) ([]model.PriceVersion, error) {
 	return s.repo.ListVersions(limit)
 }
 
+func (s *PriceService) DeleteVersion(id int64) error {
+	return s.repo.DeletePriceVersion(id)
+}
+
 // HasAnyVersion проверяет, есть ли в базе хотя бы одна версия цен
 func (s *PriceService) HasAnyVersion(ctx context.Context) (bool, error) {
 	return s.repo.HasAnyVersion()
@@ -74,7 +79,7 @@ func (s *PriceService) SeedInitialVersion(ctx context.Context, versionTag string
 func (s *PriceService) CreatePriceVersion(versionTag string, effectiveFrom time.Time, pricesPerLiter map[string]float64) (model.PriceVersion, error) {
 	versionTag = strings.TrimSpace(versionTag)
 	if versionTag == "" {
-		versionTag = fmt.Sprintf("v-%s", time.Now().UTC().Format("20060102-150405"))
+		versionTag = time.Now().UTC().Format(time.RFC3339)
 	}
 	if effectiveFrom.IsZero() {
 		return model.PriceVersion{}, errors.New("effectiveFrom is required")

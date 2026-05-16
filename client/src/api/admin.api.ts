@@ -1,6 +1,6 @@
 import type { KioskState } from '@/types/kioskState'
 
-import { ApiClientError, httpGet, httpPost } from './http'
+import { ApiClientError, httpDelete, httpGet, httpPost } from './http'
 
 // Все admin-ручки защищены Basic Auth на сервере.
 // На практике браузер может не показывать системный Basic Auth диалог для fetch-запросов,
@@ -31,6 +31,10 @@ async function adminGet<T>(path: string): Promise<T> {
 
 async function adminPost<T>(path: string, payload?: unknown): Promise<T> {
   return adminRequest(() => httpPost<T>(path, payload, authOptions()))
+}
+
+async function adminDelete<T = void>(path: string): Promise<T> {
+  return adminRequest(() => httpDelete<T>(path, authOptions()))
 }
 
 function authOptions(): { headers?: Record<string, string> } {
@@ -161,6 +165,10 @@ export async function createPriceVersion(
   payload: AdminCreatePriceVersionRequest,
 ): Promise<AdminPriceVersion> {
   return adminPost<AdminPriceVersion>('/admin/prices/versions', payload)
+}
+
+export async function deletePriceVersion(id: number): Promise<void> {
+  return adminDelete(`/admin/prices/versions/${id}`)
 }
 
 export interface AdminTransactionView {

@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	nethttp "net/http"
+	"strconv"
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/dto"
@@ -62,6 +63,23 @@ func (h *AdminHandler) CreatePriceVersion(c *gin.Context) {
 		h.kiosk.ClearMaintenanceIfReason(service.KioskReasonNoPrices)
 	}
 	c.JSON(nethttp.StatusCreated, version)
+}
+
+func (h *AdminHandler) DeletePriceVersion(c *gin.Context) {
+	if h.prices == nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": "price service is not configured"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid version id"})
+		return
+	}
+	if err := h.prices.DeleteVersion(id); err != nil {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(nethttp.StatusNoContent)
 }
 
 func (h *AdminHandler) ListTransactions(c *gin.Context) {
