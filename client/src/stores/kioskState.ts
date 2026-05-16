@@ -32,6 +32,8 @@ export const useKioskStateStore = defineStore('kioskState', () => {
   function connect(): void {
     if (es !== null) return
 
+    refresh()
+
     es = new EventSource(`${API_BASE_URL}/kiosk/events`)
 
     es.onmessage = (event) => {
@@ -40,6 +42,10 @@ export const useKioskStateStore = defineStore('kioskState', () => {
       } catch {
         // ignore malformed events
       }
+    }
+
+    es.onopen = () => {
+      loadError.value = null
     }
 
     es.onerror = () => {

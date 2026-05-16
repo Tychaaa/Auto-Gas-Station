@@ -66,6 +66,23 @@ func (h *AdminHandler) CreatePriceVersion(c *gin.Context) {
 	c.JSON(nethttp.StatusCreated, version)
 }
 
+func (h *AdminHandler) DeletePriceVersion(c *gin.Context) {
+	if h.prices == nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": "price service is not configured"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid version id"})
+		return
+	}
+	if err := h.prices.DeleteVersion(id); err != nil {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": err.Error()})
+		return
+	}
+	c.Status(nethttp.StatusNoContent)
+}
+
 func (h *AdminHandler) ListTransactions(c *gin.Context) {
 	txs, err := h.txRepo.ListAll()
 	if err != nil {

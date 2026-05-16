@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 
 import { getFuelPrices } from '@/api/transaction.api'
 import {
   createPriceVersion,
+  deletePriceVersion,
   listPriceVersions,
   type AdminPriceVersion,
+  type AdminPriceVersionItem,
 } from '@/api/admin.api'
 import type { FuelPrice } from '@/types'
 
 const FUEL_DISPLAY_ORDER = ['АИ-92', 'АИ-95', 'АИ-100', 'ДТ'] as const
+const VERSIONS_PREVIEW_COUNT = 3
 
 const currentPrices = ref<FuelPrice[]>([])
 const isLoadingCurrent = ref(false)
@@ -18,6 +21,7 @@ const currentLoadError = ref<string | null>(null)
 const versions = ref<AdminPriceVersion[]>([])
 const isLoadingVersions = ref(false)
 const versionsLoadError = ref<string | null>(null)
+const showAllVersions = ref(false)
 
 const formState = reactive<{
   effectiveFrom: string
@@ -32,6 +36,20 @@ const formState = reactive<{
 const isSubmitting = ref(false)
 const submitError = ref<string | null>(null)
 const submitSuccess = ref<string | null>(null)
+
+const deletingId = ref<number | null>(null)
+const deleteError = ref<string | null>(null)
+
+const displayedVersions = computed(() =>
+  showAllVersions.value ? versions.value : versions.value.slice(0, VERSIONS_PREVIEW_COUNT),
+)
+const hasHiddenVersions = computed(() => versions.value.length > VERSIONS_PREVIEW_COUNT)
+
+function sortedItems(items: AdminPriceVersionItem[]): AdminPriceVersionItem[] {
+  return [...items].sort(
+    (a, b) => FUEL_DISPLAY_ORDER.indexOf(a.fuelType as (typeof FUEL_DISPLAY_ORDER)[number]) - FUEL_DISPLAY_ORDER.indexOf(b.fuelType as (typeof FUEL_DISPLAY_ORDER)[number]),
+  )
+}
 
 function formatTimestamp(iso: string): string {
   if (!iso) {
@@ -85,6 +103,27 @@ function resetFormWithCurrent(): void {
   formState.versionTag = ''
 }
 
+function copyVersionToForm(version: AdminPriceVersion): void {
+  for (const fuelType of FUEL_DISPLAY_ORDER) {
+    const item = version.items.find((i) => i.fuelType === fuelType)
+    formState.prices[fuelType] = item ? item.pricePerLiter.toFixed(2) : ''
+  }
+}
+
+async function handleDeleteVersion(id: number): Promise<void> {
+  if (!confirm('Удалить эту версию цен?')) return
+  deletingId.value = id
+  deleteError.value = null
+  try {
+    await deletePriceVersion(id)
+    await Promise.all([loadCurrent(), loadVersions()])
+  } catch (error) {
+    deleteError.value = error instanceof Error ? error.message : 'Не удалось удалить версию'
+  } finally {
+    deletingId.value = null
+  }
+}
+
 async function handleSubmit(): Promise<void> {
   submitError.value = null
   submitSuccess.value = null
@@ -134,7 +173,7 @@ onMounted(async () => {
 
 <template>
   <section class="flex flex-col gap-10">
-    <!-- Текущие цены читаем через публичную ручку /api/v1/fuel-prices -->
+    <!-- Текущие цены -->
     <div class="bg-white rounded-2xl border border-fuel-olive/20 p-6 shadow-sm">
       <div class="flex items-center justify-between gap-4 mb-4">
         <h3 class="font-rubik font-semibold text-xl text-fuel-forest">
@@ -292,34 +331,93 @@ onMounted(async () => {
       <p v-else-if="versions.length === 0" class="font-karla text-sm text-fuel-olive">
         Версий цен пока нет
       </p>
-      <ul v-else class="flex flex-col gap-4">
-        <li
-          v-for="version in versions"
-          :key="version.id"
-          class="border border-fuel-olive/20 rounded-xl p-4 bg-fuel-cream/40"
-        >
-          <div class="flex items-center justify-between gap-4 mb-2">
-            <p class="font-rubik font-semibold text-fuel-forest">
-              {{ version.versionTag }}
-            </p>
-            <p class="font-karla text-xs text-fuel-olive">
-              действует с {{ formatTimestamp(version.effectiveFrom) }}
-            </p>
-          </div>
-          <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
-            <div
-              v-for="item in version.items"
-              :key="item.fuelType"
-              class="bg-white border border-fuel-olive/15 rounded-lg px-3 py-2"
-            >
-              <p class="font-karla text-xs text-fuel-olive">{{ item.fuelType }}</p>
+      <template v-else>
+        <p v-if="deleteError" class="font-karla text-sm text-red-600 mb-3">{{ deleteError }}</p>
+        <ul class="flex flex-col gap-4">
+          <li
+            v-for="version in displayedVersions"
+            :key="version.id"
+            class="border border-fuel-olive/20 rounded-xl p-4 bg-fuel-cream/40"
+          >
+            <div class="flex items-center justify-between gap-4 mb-3">
               <p class="font-rubik font-semibold text-fuel-forest">
-                {{ item.pricePerLiter.toFixed(2) }} ₽/л
+                {{ version.versionTag }}
               </p>
+              <div class="flex items-center gap-3">
+                <p class="font-karla text-xs text-fuel-olive">
+                  действует с {{ formatTimestamp(version.effectiveFrom) }}
+                </p>
+                <!-- Копировать в форму -->
+                <button
+                  type="button"
+                  title="Скопировать цены в форму"
+                  class="flex items-center gap-1 font-karla text-xs text-fuel-forest/70 hover:text-fuel-forest transition-colors"
+                  @click="copyVersionToForm(version)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="9" y="9" width="13" height="13" rx="2" ry="2"/>
+                    <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+                  </svg>
+                  <span class="hidden sm:inline">Скопировать</span>
+                </button>
+                <!-- Удалить -->
+                <button
+                  type="button"
+                  title="Удалить версию"
+                  :disabled="deletingId === version.id"
+                  class="flex items-center gap-1 font-karla text-xs text-red-400 hover:text-red-600 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  @click="handleDeleteVersion(version.id)"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                    <polyline points="3 6 5 6 21 6"/>
+                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+                    <path d="M10 11v6"/>
+                    <path d="M14 11v6"/>
+                    <path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/>
+                  </svg>
+                  <span class="hidden sm:inline">{{ deletingId === version.id ? 'Удаляем...' : 'Удалить' }}</span>
+                </button>
+              </div>
             </div>
-          </div>
-        </li>
-      </ul>
+            <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <div
+                v-for="item in sortedItems(version.items)"
+                :key="item.fuelType"
+                class="bg-white border border-fuel-olive/15 rounded-lg px-3 py-2"
+              >
+                <p class="font-karla text-xs text-fuel-olive">{{ item.fuelType }}</p>
+                <p class="font-rubik font-semibold text-fuel-forest">
+                  {{ item.pricePerLiter.toFixed(2) }} ₽/л
+                </p>
+              </div>
+            </div>
+          </li>
+        </ul>
+
+        <!-- Кнопка свернуть/развернуть -->
+        <div v-if="hasHiddenVersions" class="flex justify-center mt-4">
+          <button
+            type="button"
+            class="flex items-center gap-1 text-fuel-olive hover:text-fuel-forest transition-colors"
+            :title="showAllVersions ? 'Свернуть' : `Показать ещё ${versions.length - VERSIONS_PREVIEW_COUNT}`"
+            @click="showAllVersions = !showAllVersions"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              class="w-5 h-5 transition-transform duration-200"
+              :class="{ 'rotate-180': showAllVersions }"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            >
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        </div>
+      </template>
     </div>
   </section>
 </template>

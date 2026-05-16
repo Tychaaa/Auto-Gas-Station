@@ -171,6 +171,10 @@ export async function createPriceVersion(
   return adminPost<AdminPriceVersion>('/admin/prices/versions', payload)
 }
 
+export async function deletePriceVersion(id: number): Promise<void> {
+  return adminDelete(`/admin/prices/versions/${id}`)
+}
+
 export interface AdminTransactionView {
   id: string
   createdAt: string
