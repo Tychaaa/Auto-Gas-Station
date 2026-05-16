@@ -3,6 +3,7 @@ package handlers
 import (
 	"errors"
 	nethttp "net/http"
+	"strconv"
 	"time"
 
 	"AUTO-GAS-STATION/server/internal/dto"
@@ -16,10 +17,11 @@ type AdminHandler struct {
 	prices *service.PriceService
 	txRepo service.TransactionRepository
 	kiosk  *service.KioskService
+	shift  *service.ShiftService
 }
 
-func NewAdminHandler(prices *service.PriceService, txRepo service.TransactionRepository, kiosk *service.KioskService) *AdminHandler {
-	return &AdminHandler{prices: prices, txRepo: txRepo, kiosk: kiosk}
+func NewAdminHandler(prices *service.PriceService, txRepo service.TransactionRepository, kiosk *service.KioskService, shift *service.ShiftService) *AdminHandler {
+	return &AdminHandler{prices: prices, txRepo: txRepo, kiosk: kiosk, shift: shift}
 }
 
 func (h *AdminHandler) ListPriceVersions(c *gin.Context) {
@@ -191,4 +193,189 @@ func formatOptionalTime(t time.Time) string {
 		return ""
 	}
 	return t.Format(time.RFC3339)
+}
+
+// ShiftStatus - GET /admin/shift/status
+func (h *AdminHandler) ShiftStatus(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	snap, err := h.shift.Status(c.Request.Context())
+	if err != nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	resp := dto.ShiftStatusResponse{
+		IsOpen:      snap.IsOpen,
+		IsExpired:   snap.IsExpired,
+		ShiftNumber: snap.ShiftNumber,
+		ReceiptNum:  snap.ReceiptNum,
+		HoursOpen:   snap.HoursOpen,
+		HoursLeft:   snap.HoursLeft,
+	}
+	if snap.OpenedAt != nil {
+		resp.OpenedAt = snap.OpenedAt.Format(time.RFC3339)
+	}
+	c.JSON(nethttp.StatusOK, resp)
+}
+
+// CloseShift - POST /admin/shift/close
+func (h *AdminHandler) CloseShift(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	result, err := h.shift.CloseNow(c.Request.Context())
+	if err != nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, dto.CloseShiftResponse{
+		ShiftNumber: result.ShiftNumber,
+		FDNumber:    result.FDNumber,
+		FiscalSign:  result.FiscalSign,
+	})
+}
+
+// CalcStatusReport - POST /admin/reports/calc-status
+func (h *AdminHandler) CalcStatusReport(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	result, err := h.shift.CalcStatusReport(c.Request.Context())
+	if err != nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+	resp := dto.CalcStatusResponse{
+		FDNumber:         result.FDNumber,
+		FiscalSign:       result.FiscalSign,
+		UnconfirmedCount: result.UnconfirmedCount,
+	}
+	if result.FirstUnconfirmedDate != nil {
+		resp.FirstUnconfirmedDate = result.FirstUnconfirmedDate.Format("2006-01-02")
+	}
+	if result.HasDateTime {
+		resp.DateTime = result.DateTime.Format(time.RFC3339)
+	}
+	c.JSON(nethttp.StatusOK, resp)
+}
+
+// ListHeaderLines - GET /admin/kkt/header-lines
+func (h *AdminHandler) ListHeaderLines(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	lines, err := h.shift.ListHeaderLines(c.Request.Context())
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	items := make([]dto.HeaderLineDTO, 0, len(lines))
+	for _, l := range lines {
+		items = append(items, dto.HeaderLineDTO{ID: l.ID, Position: l.Position, Text: l.Text})
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"items": items})
+}
+
+// ReplaceHeaderLines - PUT /admin/kkt/header-lines (bulk replace)
+func (h *AdminHandler) ReplaceHeaderLines(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	var req dto.ReplaceHeaderLinesRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	lines := make([]model.HeaderLine, 0, len(req.Lines))
+	for i, l := range req.Lines {
+		pos := l.Position
+		if pos == 0 {
+			pos = i + 1
+		}
+		lines = append(lines, model.HeaderLine{Position: pos, Text: l.Text})
+	}
+	if err := h.shift.ReplaceHeaderLines(c.Request.Context(), lines); err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"ok": true})
+}
+
+// CreateHeaderLine - POST /admin/kkt/header-lines
+func (h *AdminHandler) CreateHeaderLine(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	var req dto.CreateHeaderLineRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	created, err := h.shift.CreateHeaderLine(c.Request.Context(), model.HeaderLine{
+		Position: req.Position,
+		Text:     req.Text,
+	})
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusCreated, dto.HeaderLineDTO{ID: created.ID, Position: created.Position, Text: created.Text})
+}
+
+// UpdateHeaderLine - PUT /admin/kkt/header-lines/:id
+func (h *AdminHandler) UpdateHeaderLine(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	var req dto.UpdateHeaderLineRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request: " + err.Error()})
+		return
+	}
+	if err := h.shift.UpdateHeaderLine(c.Request.Context(), model.HeaderLine{
+		ID:       id,
+		Position: req.Position,
+		Text:     req.Text,
+	}); errors.Is(err, repository.ErrHeaderLineNotFound) {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": "header line not found"})
+		return
+	} else if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"ok": true})
+}
+
+// DeleteHeaderLine - DELETE /admin/kkt/header-lines/:id
+func (h *AdminHandler) DeleteHeaderLine(c *gin.Context) {
+	if h.shift == nil {
+		c.JSON(nethttp.StatusServiceUnavailable, gin.H{"error": "shift service not available"})
+		return
+	}
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid id"})
+		return
+	}
+	if err := h.shift.DeleteHeaderLine(c.Request.Context(), id); errors.Is(err, repository.ErrHeaderLineNotFound) {
+		c.JSON(nethttp.StatusNotFound, gin.H{"error": "header line not found"})
+		return
+	} else if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(nethttp.StatusOK, gin.H{"ok": true})
 }

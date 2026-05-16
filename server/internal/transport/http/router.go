@@ -78,6 +78,16 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.GET("/system/watchdog", watchdog.Status)
 		group.POST("/system/reboot", watchdog.Reboot)
 		group.POST("/equipment/dispenser/check", equipment.CheckDispenser)
+
+		group.GET("/shift/status", admin.ShiftStatus)
+		group.POST("/shift/close", admin.CloseShift)
+		group.POST("/reports/calc-status", admin.CalcStatusReport)
+
+		group.GET("/kkt/header-lines", admin.ListHeaderLines)
+		group.PUT("/kkt/header-lines", admin.ReplaceHeaderLines)
+		group.POST("/kkt/header-lines", admin.CreateHeaderLine)
+		group.PUT("/kkt/header-lines/:id", admin.UpdateHeaderLine)
+		group.DELETE("/kkt/header-lines/:id", admin.DeleteHeaderLine)
 	}
 }
 
