@@ -23,6 +23,7 @@ type PriceRepository interface {
 	ListCurrentPrices(now time.Time) ([]model.FuelPriceSnapshot, error)
 	ListVersions(limit int) ([]model.PriceVersion, error)
 	CreatePriceVersion(versionTag string, effectiveFrom time.Time, items []model.SeededFuelPrice) (model.PriceVersion, error)
+	DeletePriceVersion(id int64) error
 	HasAnyVersion() (bool, error)
 	LatestCatalog() ([]model.SeededFuelPrice, error)
 }
@@ -49,6 +50,10 @@ func (s *PriceService) GetCurrentPrice(fuelType string) (model.FuelPriceSnapshot
 
 func (s *PriceService) ListVersions(limit int) ([]model.PriceVersion, error) {
 	return s.repo.ListVersions(limit)
+}
+
+func (s *PriceService) DeleteVersion(id int64) error {
+	return s.repo.DeletePriceVersion(id)
 }
 
 // HasAnyVersion проверяет, есть ли в базе хотя бы одна версия цен
