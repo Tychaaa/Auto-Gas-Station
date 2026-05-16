@@ -20,6 +20,8 @@ const (
 	defaultKKTVATRate           = "NO_VAT"
 	defaultKKTPaymentMethodSign = 4
 	defaultKKTPaymentSubject    = 1
+	defaultKKTShiftMaxHours     = 23
+	defaultKKTAutoCloseAt       = "00:00"
 )
 
 func loadFiscalKKTFromEnv() (fiscal.Config, error) {
@@ -38,6 +40,8 @@ func loadFiscalKKTFromEnv() (fiscal.Config, error) {
 		PaymentMethodSign:  envInt("KKT_PAYMENT_METHOD_SIGN", defaultKKTPaymentMethodSign),
 		PaymentSubjectSign: envInt("KKT_PAYMENT_SUBJECT_SIGN", defaultKKTPaymentSubject),
 		DumpHex:            envBool("KKT_DUMP_HEX", false),
+		ShiftMaxHours:      envInt("KKT_SHIFT_MAX_HOURS", defaultKKTShiftMaxHours),
+		AutoCloseAt:        envString("KKT_AUTO_CLOSE_AT", defaultKKTAutoCloseAt),
 	}
 	if err := cfg.Validate(); err != nil {
 		return fiscal.Config{}, fmt.Errorf("invalid KKT config: %w", err)
