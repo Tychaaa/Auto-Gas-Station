@@ -16,14 +16,11 @@ func NewAZTSerialAdapter(cfg azt.SerialConfig) (*AZTSerialAdapter, error) {
 	if cfg.Port == "" {
 		return nil, fmt.Errorf("fuel port is required")
 	}
-	if cfg.Address < 1 || cfg.Address > 15 {
-		return nil, fmt.Errorf("fuel address must be in range 1..15")
-	}
 	return &AZTSerialAdapter{config: cfg}, nil
 }
 
 func (a *AZTSerialAdapter) StartFueling(ctx context.Context, input StartInput) (StartResult, error) {
-	client, err := a.newClient()
+	client, err := a.newClient(input.AZTAddress)
 	if err != nil {
 		return StartResult{}, err
 	}
@@ -82,7 +79,7 @@ func (a *AZTSerialAdapter) StartFueling(ctx context.Context, input StartInput) (
 }
 
 func (a *AZTSerialAdapter) GetFuelingStatus(ctx context.Context, input StatusInput) (StatusResult, error) {
-	client, err := a.newClient()
+	client, err := a.newClient(input.AZTAddress)
 	if err != nil {
 		return StatusResult{}, err
 	}
@@ -123,7 +120,7 @@ func (a *AZTSerialAdapter) GetFuelingStatus(ctx context.Context, input StatusInp
 }
 
 func (a *AZTSerialAdapter) Check(ctx context.Context) (CheckResult, error) {
-	client, err := a.newClient()
+	client, err := a.newClient(1)
 	if err != nil {
 		return CheckResult{}, fmt.Errorf("open dispenser port: %w", err)
 	}
@@ -142,13 +139,13 @@ func (a *AZTSerialAdapter) Check(ctx context.Context) (CheckResult, error) {
 	}, nil
 }
 
-func (a *AZTSerialAdapter) newClient() (*azt.MasterClient, error) {
+func (a *AZTSerialAdapter) newClient(address int) (*azt.MasterClient, error) {
 	transport, err := azt.NewSerialTransport(a.config)
 	if err != nil {
 		return nil, err
 	}
 
-	client, err := azt.NewMasterClient(transport, a.config.Address)
+	client, err := azt.NewMasterClient(transport, address)
 	if err != nil {
 		transport.Close()
 		return nil, err
