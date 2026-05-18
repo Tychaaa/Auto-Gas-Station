@@ -296,13 +296,32 @@ export interface AdminDispenserView {
   id: number
   fuelType: string
   label: string
+  enabled: boolean
+  tankVolume: number
+  tankRemaining: number
   updatedAt: string
+}
+
+export interface UpdateDispenserPayload {
+  fuelType: string
+  enabled: boolean
 }
 
 export async function listDispensers(): Promise<AdminDispenserView[]> {
   return adminGet<AdminDispenserView[]>('/admin/dispensers')
 }
 
-export async function assignDispenserFuelType(id: number, fuelType: string): Promise<AdminDispenserView> {
-  return adminPut<AdminDispenserView>(`/admin/dispensers/${id}`, { fuelType })
+export async function updateDispenser(
+  id: number,
+  payload: UpdateDispenserPayload,
+): Promise<AdminDispenserView> {
+  return adminPut<AdminDispenserView>(`/admin/dispensers/${id}`, payload)
+}
+
+export async function addDispenser(): Promise<AdminDispenserView> {
+  return adminPost<AdminDispenserView>('/admin/dispensers')
+}
+
+export async function deleteDispenser(id: number): Promise<void> {
+  return adminDelete(`/admin/dispensers/${id}`)
 }
