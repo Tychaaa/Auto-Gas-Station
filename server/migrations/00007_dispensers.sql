@@ -1,10 +1,12 @@
 -- +goose Up
 -- +goose StatementBegin
 CREATE TABLE IF NOT EXISTS dispensers (
-    id          INTEGER  PRIMARY KEY,
-    fuel_type   TEXT     NOT NULL DEFAULT '',
-    label       TEXT     NOT NULL DEFAULT '',
-    updated_at  DATETIME NOT NULL DEFAULT (datetime('now'))
+    id         INTEGER  PRIMARY KEY,
+    fuel_type  TEXT     NOT NULL DEFAULT '',
+    label      TEXT     NOT NULL DEFAULT '',
+    enabled    INTEGER  NOT NULL DEFAULT 1,
+    sort_order INTEGER  NOT NULL DEFAULT 0,
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
 );
 -- +goose StatementEnd
 
