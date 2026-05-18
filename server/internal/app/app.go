@@ -194,7 +194,7 @@ func New(cfg Config) (*App, error) {
 	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService, shiftService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
-	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
+	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter, fiscalAdapter)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,

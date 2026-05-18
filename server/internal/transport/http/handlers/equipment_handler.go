@@ -5,17 +5,24 @@ import (
 	"net/http"
 	"time"
 
+	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/adapter/fueling"
 	"AUTO-GAS-STATION/server/internal/dto"
 	"github.com/gin-gonic/gin"
 )
 
-type EquipmentHandler struct {
-	fuelingAdapter fueling.Adapter
+// KKTChecker — минимальный интерфейс для проверки связи с ККТ.
+type KKTChecker interface {
+	CheckKKT(ctx context.Context) fiscal.KKTCheckResult
 }
 
-func NewEquipmentHandler(fuelingAdapter fueling.Adapter) *EquipmentHandler {
-	return &EquipmentHandler{fuelingAdapter: fuelingAdapter}
+type EquipmentHandler struct {
+	fuelingAdapter fueling.Adapter
+	kktChecker     KKTChecker
+}
+
+func NewEquipmentHandler(fuelingAdapter fueling.Adapter, kktChecker KKTChecker) *EquipmentHandler {
+	return &EquipmentHandler{fuelingAdapter: fuelingAdapter, kktChecker: kktChecker}
 }
 
 func (h *EquipmentHandler) CheckDispenser(c *gin.Context) {
@@ -40,5 +47,21 @@ func (h *EquipmentHandler) CheckDispenser(c *gin.Context) {
 		DispensedLiters: result.DispensedLiters,
 		Completed:       result.Completed,
 		CheckedAt:       time.Now().UTC(),
+	})
+}
+
+func (h *EquipmentHandler) CheckKKT(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 10*time.Second)
+	defer cancel()
+
+	result := h.kktChecker.CheckKKT(ctx)
+	c.JSON(http.StatusOK, dto.EquipmentKKTCheckView{
+		Online:        result.Online,
+		Mode:          result.Mode,
+		Submode:       result.Submode,
+		IsShiftOpen:   result.IsShiftOpen,
+		IsReceiptOpen: result.IsReceiptOpen,
+		Error:         result.Error,
+		CheckedAt:     time.Now().UTC(),
 	})
 }

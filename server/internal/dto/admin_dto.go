@@ -104,3 +104,13 @@ type EquipmentDispenserCheckView struct {
 	Error           string    `json:"error,omitempty"`
 	CheckedAt       time.Time `json:"checkedAt"`
 }
+
+type EquipmentKKTCheckView struct {
+	Online        bool      `json:"online"`
+	Mode          uint8     `json:"mode"`
+	Submode       uint8     `json:"submode"`
+	IsShiftOpen   bool      `json:"isShiftOpen"`
+	IsReceiptOpen bool      `json:"isReceiptOpen"`
+	Error         string    `json:"error,omitempty"`
+	CheckedAt     time.Time `json:"checkedAt"`
+}

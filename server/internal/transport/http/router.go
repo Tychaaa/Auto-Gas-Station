@@ -79,6 +79,7 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.GET("/system/watchdog", watchdog.Status)
 		group.POST("/system/reboot", watchdog.Reboot)
 		group.POST("/equipment/dispenser/check", equipment.CheckDispenser)
+		group.POST("/equipment/kkt/check", equipment.CheckKKT)
 
 		group.GET("/shift/status", admin.ShiftStatus)
 		group.POST("/shift/open", admin.OpenShift)
