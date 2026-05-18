@@ -73,6 +73,7 @@ type Transaction struct {
 	DispensedLiters  float64
 	DispenseComplete bool
 	DispensePartial  bool
+	DispenserID      int
 }
 
 // Проверяет топливо и ровно один вариант заказа сумма литры или пресет
@@ -162,7 +163,7 @@ func (t *Transaction) MarkPaymentFailed(msg string) error {
 // Переход из paid в fueling sessionID выдает API отпуска или заглушка.
 // Перед стартом отпуска требует, чтобы фискальный чек уже был напечатан
 // (FiscalStatus == done) - иначе нарушается порядок "оплата -> чек -> налив".
-func (t *Transaction) BeginFueling(sessionID string) error {
+func (t *Transaction) BeginFueling(sessionID string, dispenserID int) error {
 	if t.Status != TransactionStatusPaid {
 		return errors.New("fueling can only be started from paid")
 	}
@@ -175,6 +176,7 @@ func (t *Transaction) BeginFueling(sessionID string) error {
 	t.Status = TransactionStatusFueling
 	t.FuelingStatus = FuelingStatusStarting
 	t.FuelingSessionID = sessionID
+	t.DispenserID = dispenserID
 	t.FuelingError = ""
 	t.DispensedLiters = 0
 	t.DispenseComplete = false
