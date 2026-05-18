@@ -32,22 +32,42 @@ func (r *SQLiteDispenserRepository) Close() error {
 	return r.db.Close()
 }
 
-func (r *SQLiteDispenserRepository) InitDispensers(count int) error {
-	for i := 1; i <= count; i++ {
-		label := fmt.Sprintf("Колонка %d", i)
-		_, err := r.db.Exec(
-			`INSERT OR IGNORE INTO dispensers (id, fuel_type, label, updated_at) VALUES (?, '', ?, ?)`,
-			i, label, time.Now().UTC(),
+var defaultFuelTypes = map[int]string{
+	1: "АИ-92",
+	2: "АИ-95",
+	3: "АИ-100",
+	4: "ДТ",
+}
+
+func (r *SQLiteDispenserRepository) InitDispensers(addresses []int) error {
+	for pos, addr := range addresses {
+		label := fmt.Sprintf("Колонка %d", pos+1)
+		fuelType := defaultFuelTypes[pos+1]
+		_, err := r.db.Exec(`
+			INSERT INTO dispensers (id, fuel_type, label, sort_order, updated_at)
+			VALUES (?, ?, ?, ?, ?)
+			ON CONFLICT(id) DO UPDATE SET
+				label      = excluded.label,
+				sort_order = excluded.sort_order`,
+			addr, fuelType, label, pos+1, time.Now().UTC(),
 		)
 		if err != nil {
-			return fmt.Errorf("init dispenser %d: %w", i, err)
+			return fmt.Errorf("init dispenser addr=%d: %w", addr, err)
 		}
 	}
 	return nil
 }
 
+func (r *SQLiteDispenserRepository) Count() (int, error) {
+	var count int
+	if err := r.db.QueryRow(`SELECT COUNT(*) FROM dispensers`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count dispensers: %w", err)
+	}
+	return count, nil
+}
+
 func (r *SQLiteDispenserRepository) List() ([]*model.Dispenser, error) {
-	rows, err := r.db.Query(`SELECT id, fuel_type, label, updated_at FROM dispensers ORDER BY id ASC`)
+	rows, err := r.db.Query(`SELECT id, fuel_type, label, enabled, sort_order, updated_at FROM dispensers ORDER BY sort_order ASC, id ASC`)
 	if err != nil {
 		return nil, fmt.Errorf("list dispensers: %w", err)
 	}
@@ -68,7 +88,10 @@ func (r *SQLiteDispenserRepository) List() ([]*model.Dispenser, error) {
 }
 
 func (r *SQLiteDispenserRepository) GetByFuelType(fuelType string) (*model.Dispenser, error) {
-	row := r.db.QueryRow(`SELECT id, fuel_type, label, updated_at FROM dispensers WHERE fuel_type = ?`, fuelType)
+	row := r.db.QueryRow(
+		`SELECT id, fuel_type, label, enabled, sort_order, updated_at FROM dispensers WHERE fuel_type = ? AND enabled = 1`,
+		fuelType,
+	)
 	d, err := scanDispenser(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrDispenserNotFound
@@ -80,7 +103,7 @@ func (r *SQLiteDispenserRepository) GetByFuelType(fuelType string) (*model.Dispe
 }
 
 func (r *SQLiteDispenserRepository) GetByID(id int) (*model.Dispenser, error) {
-	row := r.db.QueryRow(`SELECT id, fuel_type, label, updated_at FROM dispensers WHERE id = ?`, id)
+	row := r.db.QueryRow(`SELECT id, fuel_type, label, enabled, sort_order, updated_at FROM dispensers WHERE id = ?`, id)
 	d, err := scanDispenser(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, ErrDispenserNotFound
@@ -91,16 +114,50 @@ func (r *SQLiteDispenserRepository) GetByID(id int) (*model.Dispenser, error) {
 	return d, nil
 }
 
-func (r *SQLiteDispenserRepository) SetFuelType(id int, fuelType string) (*model.Dispenser, error) {
+func (r *SQLiteDispenserRepository) Update(id int, fuelType string, enabled bool) (*model.Dispenser, error) {
 	now := time.Now().UTC()
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
 	_, err := r.db.Exec(
-		`UPDATE dispensers SET fuel_type = ?, updated_at = ? WHERE id = ?`,
-		fuelType, now, id,
+		`UPDATE dispensers SET fuel_type = ?, enabled = ?, updated_at = ? WHERE id = ?`,
+		fuelType, enabledInt, now, id,
 	)
 	if err != nil {
-		return nil, fmt.Errorf("set dispenser fuel type: %w", err)
+		return nil, fmt.Errorf("update dispenser: %w", err)
 	}
 	return r.GetByID(id)
+}
+
+func (r *SQLiteDispenserRepository) Add() (*model.Dispenser, error) {
+	now := time.Now().UTC()
+	var maxID int
+	if err := r.db.QueryRow(`SELECT COALESCE(MAX(id), 0) FROM dispensers`).Scan(&maxID); err != nil {
+		return nil, fmt.Errorf("get max dispenser id: %w", err)
+	}
+	newID := maxID + 1
+	label := fmt.Sprintf("Колонка %d", newID)
+	_, err := r.db.Exec(
+		`INSERT INTO dispensers (id, fuel_type, label, enabled, updated_at) VALUES (?, '', ?, 1, ?)`,
+		newID, label, now,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("add dispenser: %w", err)
+	}
+	return r.GetByID(newID)
+}
+
+func (r *SQLiteDispenserRepository) Delete(id int) error {
+	result, err := r.db.Exec(`DELETE FROM dispensers WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete dispenser: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return ErrDispenserNotFound
+	}
+	return nil
 }
 
 type dispenserScanner interface {
@@ -109,8 +166,10 @@ type dispenserScanner interface {
 
 func scanDispenser(s dispenserScanner) (*model.Dispenser, error) {
 	var d model.Dispenser
-	if err := s.Scan(&d.ID, &d.FuelType, &d.Label, &d.UpdatedAt); err != nil {
+	var enabledInt int
+	if err := s.Scan(&d.ID, &d.FuelType, &d.Label, &enabledInt, &d.SortOrder, &d.UpdatedAt); err != nil {
 		return nil, err
 	}
+	d.Enabled = enabledInt == 1
 	return &d, nil
 }

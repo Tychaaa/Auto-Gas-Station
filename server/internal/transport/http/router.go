@@ -80,7 +80,9 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.GET("/system/watchdog", watchdog.Status)
 		group.POST("/system/reboot", watchdog.Reboot)
 		group.GET("/dispensers", dispenser.List)
+		group.POST("/dispensers", dispenser.Add)
 		group.PUT("/dispensers/:id", dispenser.Assign)
+		group.DELETE("/dispensers/:id", dispenser.Delete)
 		group.POST("/equipment/dispenser/:id/check", equipment.CheckDispenser)
 	}
 }

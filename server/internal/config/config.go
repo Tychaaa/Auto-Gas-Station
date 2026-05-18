@@ -16,12 +16,12 @@ import (
 const DefaultVendotekMockBaseURL = "http://localhost:8082"
 
 const (
-	defaultFuelPort           = "COM1"
-	defaultFuelBaud           = 4800
-	defaultFuelDataBits       = 7
-	defaultFuelStopBits       = 2
-	defaultFuelParity         = "even"
-	defaultFuelDispenserCount = 1
+	defaultFuelPort      = "COM1"
+	defaultFuelBaud      = 4800
+	defaultFuelDataBits  = 7
+	defaultFuelStopBits  = 2
+	defaultFuelParity    = "even"
+	MaxDispenserCount    = 15
 )
 
 const (
@@ -50,12 +50,12 @@ type Config struct {
 }
 
 type FuelSerialConfig struct {
-	Port           string
-	Baud           int
-	DataBits       int
-	StopBits       int
-	Parity         string
-	DispenserCount int
+	Port               string
+	Baud               int
+	DataBits           int
+	StopBits           int
+	Parity             string
+	DispenserAddresses []int
 }
 
 // WatchdogConfig — конфигурация ESP32 watchdog. При Mode=="disabled" сервер
@@ -125,7 +125,7 @@ func Load() (Config, error) {
 			DataBits:       envInt("FUEL_DATABITS", defaultFuelDataBits),
 			StopBits:       envInt("FUEL_STOPBITS", defaultFuelStopBits),
 			Parity:         envString("FUEL_PARITY", defaultFuelParity),
-			DispenserCount: envInt("FUEL_DISPENSER_COUNT", defaultFuelDispenserCount),
+			DispenserAddresses: envIntSlice("FUEL_DISPENSER_ADDRESSES", []int{1, 2, 3, 4}),
 		},
 		Watchdog:  watchdog,
 		FiscalKKT: fiscalKKT,
@@ -190,6 +190,26 @@ func envInt(name string, fallback int) int {
 		return fallback
 	}
 	return parsed
+}
+
+func envIntSlice(name string, fallback []int) []int {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	parts := strings.Split(value, ",")
+	result := make([]int, 0, len(parts))
+	for _, p := range parts {
+		n, err := strconv.Atoi(strings.TrimSpace(p))
+		if err != nil || n < 1 || n > MaxDispenserCount {
+			return fallback
+		}
+		result = append(result, n)
+	}
+	if len(result) == 0 {
+		return fallback
+	}
+	return result
 }
 
 func envUint32(name string, fallback uint32) uint32 {

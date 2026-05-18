@@ -79,7 +79,7 @@ func New(cfg Config) (*App, error) {
 		_ = priceRepo.Close()
 		return nil, err
 	}
-	if err := dispenserRepo.InitDispensers(cfg.FuelSerial.DispenserCount); err != nil {
+	if err := dispenserRepo.InitDispensers(cfg.FuelSerial.DispenserAddresses); err != nil {
 		_ = dispenserRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
@@ -138,7 +138,7 @@ func New(cfg Config) (*App, error) {
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
-	dispenserHandler := handlers.NewDispenserHandler(dispenserService)
+	dispenserHandler := handlers.NewDispenserHandler(dispenserService, config.MaxDispenserCount)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,
