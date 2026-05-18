@@ -1,6 +1,6 @@
 import type { KioskState } from '@/types/kioskState'
 
-import { ApiClientError, httpDelete, httpGet, httpPost } from './http'
+import { ApiClientError, httpDelete, httpGet, httpPost, httpPut } from './http'
 
 // Все admin-ручки защищены Basic Auth на сервере.
 // На практике браузер может не показывать системный Basic Auth диалог для fetch-запросов,
@@ -35,6 +35,10 @@ async function adminPost<T>(path: string, payload?: unknown): Promise<T> {
 
 async function adminDelete<T = void>(path: string): Promise<T> {
   return adminRequest(() => httpDelete<T>(path, authOptions()))
+}
+
+async function adminPut<T>(path: string, payload?: unknown): Promise<T> {
+  return adminRequest(() => httpPut<T>(path, payload, authOptions()))
 }
 
 function authOptions(): { headers?: Record<string, string> } {
@@ -284,6 +288,21 @@ export interface AdminDispenserCheckResult {
   checkedAt: string
 }
 
-export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
-  return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
+export async function checkDispenser(id = 1): Promise<AdminDispenserCheckResult> {
+  return adminPost<AdminDispenserCheckResult>(`/admin/equipment/dispenser/${id}/check`, {})
+}
+
+export interface AdminDispenserView {
+  id: number
+  fuelType: string
+  label: string
+  updatedAt: string
+}
+
+export async function listDispensers(): Promise<AdminDispenserView[]> {
+  return adminGet<AdminDispenserView[]>('/admin/dispensers')
+}
+
+export async function assignDispenserFuelType(id: number, fuelType: string): Promise<AdminDispenserView> {
+  return adminPut<AdminDispenserView>(`/admin/dispensers/${id}`, { fuelType })
 }

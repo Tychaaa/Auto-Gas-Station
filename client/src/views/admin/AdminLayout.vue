@@ -52,6 +52,7 @@ onBeforeUnmount(() => {
           v-for="link in [
             { to: '/admin', label: 'Режим работы', exact: true },
             { to: '/admin/prices', label: 'Цены', exact: false },
+            { to: '/admin/dispensers', label: 'Колонки', exact: false },
             { to: '/admin/transactions', label: 'Транзакции', exact: false },
             { to: '/admin/equipment', label: 'Оборудование', exact: false },
           ]"
