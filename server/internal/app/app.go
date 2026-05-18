@@ -73,6 +73,20 @@ func New(cfg Config) (*App, error) {
 		kioskService.SetMaintenance(true, service.KioskReasonNoPrices)
 	}
 
+	dispenserRepo, err := repository.NewSQLiteDispenserRepository(cfg.DBPath)
+	if err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, err
+	}
+	if err := dispenserRepo.InitDispensers(cfg.FuelSerial.DispenserCount); err != nil {
+		_ = dispenserRepo.Close()
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init dispensers: %w", err)
+	}
+	dispenserService := service.NewDispenserService(dispenserRepo)
+
 	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
 		Port:     cfg.FuelSerial.Port,
@@ -80,9 +94,9 @@ func New(cfg Config) (*App, error) {
 		DataBits: cfg.FuelSerial.DataBits,
 		StopBits: cfg.FuelSerial.StopBits,
 		Parity:   cfg.FuelSerial.Parity,
-		Address:  cfg.FuelSerial.Address,
 	})
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
@@ -119,11 +133,12 @@ func New(cfg Config) (*App, error) {
 
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
-	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter)
+	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter, dispenserService)
 	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
+	dispenserHandler := handlers.NewDispenserHandler(dispenserService)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,
@@ -135,6 +150,7 @@ func New(cfg Config) (*App, error) {
 		kioskHandler,
 		watchdogHandler,
 		equipmentHandler,
+		dispenserHandler,
 	)
 	server := &http.Server{
 		Addr:              "127.0.0.1:" + cfg.Port,

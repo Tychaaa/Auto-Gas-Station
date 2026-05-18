@@ -16,12 +16,12 @@ import (
 const DefaultVendotekMockBaseURL = "http://localhost:8082"
 
 const (
-	defaultFuelPort     = "COM1"
-	defaultFuelBaud     = 4800
-	defaultFuelDataBits = 7
-	defaultFuelStopBits = 2
-	defaultFuelParity   = "even"
-	defaultFuelAddress  = 1
+	defaultFuelPort           = "COM1"
+	defaultFuelBaud           = 4800
+	defaultFuelDataBits       = 7
+	defaultFuelStopBits       = 2
+	defaultFuelParity         = "even"
+	defaultFuelDispenserCount = 1
 )
 
 const (
@@ -50,12 +50,12 @@ type Config struct {
 }
 
 type FuelSerialConfig struct {
-	Port     string
-	Baud     int
-	DataBits int
-	StopBits int
-	Parity   string
-	Address  int
+	Port           string
+	Baud           int
+	DataBits       int
+	StopBits       int
+	Parity         string
+	DispenserCount int
 }
 
 // WatchdogConfig — конфигурация ESP32 watchdog. При Mode=="disabled" сервер
@@ -120,12 +120,12 @@ func Load() (Config, error) {
 		AdminUsername:           adminUsername,
 		AdminPassword:           adminPassword,
 		FuelSerial: FuelSerialConfig{
-			Port:     envString("FUEL_PORT", defaultFuelPort),
-			Baud:     envInt("FUEL_BAUD", defaultFuelBaud),
-			DataBits: envInt("FUEL_DATABITS", defaultFuelDataBits),
-			StopBits: envInt("FUEL_STOPBITS", defaultFuelStopBits),
-			Parity:   envString("FUEL_PARITY", defaultFuelParity),
-			Address:  envInt("FUEL_ADDRESS", defaultFuelAddress),
+			Port:           envString("FUEL_PORT", defaultFuelPort),
+			Baud:           envInt("FUEL_BAUD", defaultFuelBaud),
+			DataBits:       envInt("FUEL_DATABITS", defaultFuelDataBits),
+			StopBits:       envInt("FUEL_STOPBITS", defaultFuelStopBits),
+			Parity:         envString("FUEL_PARITY", defaultFuelParity),
+			DispenserCount: envInt("FUEL_DISPENSER_COUNT", defaultFuelDispenserCount),
 		},
 		Watchdog:  watchdog,
 		FiscalKKT: fiscalKKT,

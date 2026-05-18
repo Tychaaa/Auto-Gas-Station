@@ -3,7 +3,6 @@ package handlers
 import (
 	"errors"
 	nethttp "net/http"
-	"strings"
 
 	"AUTO-GAS-STATION/server/internal/adapter/fueling"
 	"AUTO-GAS-STATION/server/internal/dto"
@@ -14,12 +13,13 @@ import (
 )
 
 type FuelingHandler struct {
-	store   service.TransactionRepository
-	adapter fueling.Adapter
+	store      service.TransactionRepository
+	adapter    fueling.Adapter
+	dispensers *service.DispenserService
 }
 
-func NewFuelingHandler(store service.TransactionRepository, adapter fueling.Adapter) *FuelingHandler {
-	return &FuelingHandler{store: store, adapter: adapter}
+func NewFuelingHandler(store service.TransactionRepository, adapter fueling.Adapter, dispensers *service.DispenserService) *FuelingHandler {
+	return &FuelingHandler{store: store, adapter: adapter, dispensers: dispensers}
 }
 
 func (h *FuelingHandler) Start(c *gin.Context) {
@@ -44,10 +44,6 @@ func (h *FuelingHandler) Start(c *gin.Context) {
 		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "invalid request body"})
 		return
 	}
-	if strings.TrimSpace(req.PumpID) == "" || strings.TrimSpace(req.NozzleID) == "" {
-		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "pumpId and nozzleId are required"})
-		return
-	}
 	if h.adapter == nil {
 		c.JSON(nethttp.StatusBadGateway, gin.H{"error": service.ErrFuelingAdapterUnavailable.Error()})
 		return
@@ -57,10 +53,19 @@ func (h *FuelingHandler) Start(c *gin.Context) {
 		return
 	}
 
+	dispenser, err := h.dispensers.FindByFuelType(tx.FuelType)
+	if errors.Is(err, repository.ErrDispenserNotFound) {
+		c.JSON(nethttp.StatusUnprocessableEntity, gin.H{"error": "no dispenser assigned for fuel type " + tx.FuelType})
+		return
+	}
+	if err != nil {
+		c.JSON(nethttp.StatusInternalServerError, gin.H{"error": err.Error()})
+		return
+	}
+
 	startResult, err := h.adapter.StartFueling(c.Request.Context(), fueling.StartInput{
 		TransactionID:  tx.ID,
-		PumpID:         req.PumpID,
-		NozzleID:       req.NozzleID,
+		AZTAddress:     dispenser.ID,
 		OrderMode:      tx.OrderMode,
 		AmountRub:      tx.AmountRub,
 		Liters:         tx.Liters,
@@ -99,7 +104,7 @@ func (h *FuelingHandler) Start(c *gin.Context) {
 		if tx.Status != model.TransactionStatusPaid {
 			return errors.New("fueling can only be started from paid")
 		}
-		if err := tx.BeginFueling(startResult.SessionID); err != nil {
+		if err := tx.BeginFueling(startResult.SessionID, dispenser.ID); err != nil {
 			return err
 		}
 		if startResult.ProviderStatus == "dispensing" {
@@ -148,9 +153,14 @@ func (h *FuelingHandler) Progress(c *gin.Context) {
 		c.JSON(nethttp.StatusOK, tx)
 		return
 	}
+	if tx.DispenserID == 0 {
+		c.JSON(nethttp.StatusUnprocessableEntity, gin.H{"error": "transaction has no dispenser assigned"})
+		return
+	}
 
 	statusResult, err := h.adapter.GetFuelingStatus(c.Request.Context(), fueling.StatusInput{
-		SessionID: tx.FuelingSessionID,
+		SessionID:  tx.FuelingSessionID,
+		AZTAddress: tx.DispenserID,
 	})
 	if err != nil {
 		updated, updateErr := h.store.Update(id, func(tx *model.Transaction) error {
