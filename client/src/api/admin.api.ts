@@ -292,6 +292,20 @@ export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
   return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
 }
 
+export interface AdminKKTCheckResult {
+  online: boolean
+  mode: number
+  submode: number
+  isShiftOpen: boolean
+  isReceiptOpen: boolean
+  error?: string
+  checkedAt: string
+}
+
+export async function checkKKT(): Promise<AdminKKTCheckResult> {
+  return adminPost<AdminKKTCheckResult>('/admin/equipment/kkt/check', {})
+}
+
 // ─── Смена и отчёты ККТ ───────────────────────────────────────────────────────
 
 export interface AdminShiftStatus {

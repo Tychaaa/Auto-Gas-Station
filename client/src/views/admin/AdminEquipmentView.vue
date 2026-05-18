@@ -3,7 +3,9 @@ import { computed, reactive, ref } from 'vue'
 
 import {
   checkDispenser as checkDispenserApi,
+  checkKKT as checkKKTApi,
   type AdminDispenserCheckResult,
+  type AdminKKTCheckResult,
 } from '@/api/admin.api'
 import { useWatchdogStateStore } from '@/stores/watchdogState'
 
@@ -48,7 +50,27 @@ function formatDurationMs(ms: number): string {
   return `${days} д ${hours % 24} ч`
 }
 
-// --- Stub equipment check (KKT, Vendotek) ---
+// --- KKT real check ---
+
+const kkt = reactive({
+  isChecking: false,
+  result: null as AdminKKTCheckResult | null,
+  error: '',
+})
+
+async function checkKKT(): Promise<void> {
+  kkt.isChecking = true
+  kkt.error = ''
+  try {
+    kkt.result = await checkKKTApi()
+  } catch (e) {
+    kkt.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    kkt.isChecking = false
+  }
+}
+
+// --- Stub equipment check (Vendotek) ---
 
 type StubStatus = 'idle' | 'checking' | 'no-data'
 
@@ -65,7 +87,6 @@ function useStubCheck() {
   return { status, check }
 }
 
-const kkt = useStubCheck()
 const vendotek = useStubCheck()
 
 // --- Dispenser real check ---
@@ -252,44 +273,76 @@ async function checkDispenser(): Promise<void> {
         </div>
 
         <div
-          v-if="kkt.status.value === 'idle'"
-          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300"
-        >
-          <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
-          <span class="font-karla text-sm text-gray-700">Не проверялось</span>
-        </div>
-        <div
-          v-else-if="kkt.status.value === 'checking'"
+          v-if="kkt.isChecking"
           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300 animate-pulse"
         >
           <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
           <span class="font-karla text-sm text-gray-700">Проверка…</span>
         </div>
         <div
+          v-else-if="kkt.result?.online"
+          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-fuel-lime/15 border border-fuel-lime/40"
+        >
+          <span class="h-2.5 w-2.5 rounded-full bg-fuel-lime" aria-hidden="true" />
+          <span class="font-karla text-sm text-fuel-forest">На связи</span>
+        </div>
+        <div
+          v-else-if="kkt.result && !kkt.result.online"
+          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 border border-red-200"
+        >
+          <span class="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" aria-hidden="true" />
+          <span class="font-karla text-sm text-red-700">Нет связи</span>
+        </div>
+        <div
           v-else
           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300"
         >
           <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
-          <span class="font-karla text-sm text-gray-700">Нет данных</span>
+          <span class="font-karla text-sm text-gray-700">Не проверялось</span>
         </div>
       </div>
 
-      <p class="font-karla text-sm text-fuel-olive">
-        Проверка состояния не реализована.
+      <div
+        v-if="kkt.result"
+        class="grid grid-cols-1 md:grid-cols-4 gap-4 text-sm font-karla"
+      >
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Режим / Подрежим</p>
+          <p class="text-fuel-forest font-medium font-mono">{{ kkt.result.mode }} / {{ kkt.result.submode }}</p>
+        </div>
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Смена открыта</p>
+          <p class="text-fuel-forest font-medium">{{ kkt.result.isShiftOpen ? 'Да' : 'Нет' }}</p>
+        </div>
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Чек открыт</p>
+          <p class="text-fuel-forest font-medium">{{ kkt.result.isReceiptOpen ? 'Да' : 'Нет' }}</p>
+        </div>
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Проверено</p>
+          <p class="text-fuel-forest font-medium">{{ formatTimestamp(kkt.result.checkedAt) }}</p>
+        </div>
+      </div>
+
+      <p v-if="kkt.result?.error" class="font-karla text-sm text-red-600">
+        Ошибка: {{ kkt.result.error }}
+      </p>
+      <p v-if="kkt.error" class="font-karla text-sm text-red-600">
+        {{ kkt.error }}
       </p>
 
       <button
         type="button"
-        :disabled="kkt.status.value === 'checking'"
+        :disabled="kkt.isChecking"
         class="font-rubik font-semibold text-lg px-8 py-4 rounded-xl transition-all duration-200
                bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95
                shadow-md shadow-fuel-lime/25
                focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2
                focus-visible:ring-offset-white focus-visible:ring-fuel-lime
                disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
-        @click="kkt.check()"
+        @click="checkKKT"
       >
-        Проверить
+        {{ kkt.isChecking ? 'Проверка…' : 'Проверить' }}
       </button>
     </div>
 
