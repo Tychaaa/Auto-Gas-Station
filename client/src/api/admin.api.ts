@@ -41,10 +41,6 @@ async function adminDelete<T>(path: string): Promise<T> {
   return adminRequest(() => httpDelete<T>(path, authOptions()))
 }
 
-async function adminPut<T>(path: string, payload?: unknown): Promise<T> {
-  return adminRequest(() => httpPut<T>(path, payload, authOptions()))
-}
-
 function authOptions(): { headers?: Record<string, string> } {
   if (!cachedAuthorizationHeader) {
     return {}

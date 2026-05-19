@@ -26,7 +26,7 @@ export interface ApiClientErrorOptions {
 export class ApiClientError extends Error {
   status?: number
   serverError?: ApiErrorResponse
-  override cause?: unknown
+  cause?: unknown
 
   constructor(message: string, options?: ApiClientErrorOptions) {
     super(message)
