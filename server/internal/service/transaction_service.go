@@ -21,14 +21,25 @@ type TransactionRepository interface {
 	GetEvents(txID string) ([]model.TransactionEvent, error)
 }
 
+// PaymentCanceller используется sweeper-ом для отмены зависших payment_pending транзакций.
+type PaymentCanceller interface {
+	Cancel(ctx context.Context, id string) (*model.Transaction, error)
+}
+
 type TransactionService struct {
-	store        TransactionRepository
-	prices       *PriceService
-	priceLockTTL time.Duration
+	store            TransactionRepository
+	prices           *PriceService
+	priceLockTTL     time.Duration
+	paymentCanceller PaymentCanceller
 }
 
 func NewTransactionService(store TransactionRepository, prices *PriceService, priceLockTTL time.Duration) *TransactionService {
 	return &TransactionService{store: store, prices: prices, priceLockTTL: priceLockTTL}
+}
+
+// SetPaymentCanceller подключает сервис отмены оплаты (вызывается после создания PaymentService).
+func (s *TransactionService) SetPaymentCanceller(c PaymentCanceller) {
+	s.paymentCanceller = c
 }
 
 func (s *TransactionService) Create(req dto.CreateTransactionRequest) (*model.Transaction, error) {
@@ -80,6 +91,19 @@ func (s *TransactionService) InactivityTimeout(id string) (*InactivityTimeoutRes
 		}
 		return &InactivityTimeoutResult{Cleared: true, Status: model.TransactionStatusAbandoned}, nil
 
+	case model.TransactionStatusPaymentPending:
+		if s.paymentCanceller != nil {
+			if _, err := s.paymentCanceller.Cancel(context.Background(), id); err != nil {
+				return nil, err
+			}
+			return &InactivityTimeoutResult{Cleared: true, Status: model.TransactionStatusFailed}, nil
+		}
+		return &InactivityTimeoutResult{
+			Cleared: false,
+			Status:  tx.Status,
+			Reason:  "payment in progress, no canceller configured",
+		}, nil
+
 	case model.TransactionStatusCompleted,
 		model.TransactionStatusFailed,
 		model.TransactionStatusAbandoned:
@@ -120,13 +144,22 @@ func (s *TransactionService) sweepStaleSelections(ttl time.Duration) {
 		return
 	}
 	for _, tx := range txs {
-		if tx.Status != model.TransactionStatusSelection || !tx.UpdatedAt.Before(threshold) {
+		if !tx.UpdatedAt.Before(threshold) {
 			continue
 		}
-		if _, err := s.store.Update(tx.ID, func(t *model.Transaction) error {
-			return t.Abandon("inactivity_timeout")
-		}); err == nil {
-			slog.Info("sweeper: abandoned stale selection transaction", "id", tx.ID)
+		switch tx.Status {
+		case model.TransactionStatusSelection:
+			if _, err := s.store.Update(tx.ID, func(t *model.Transaction) error {
+				return t.Abandon("inactivity_timeout")
+			}); err == nil {
+				slog.Info("sweeper: abandoned stale selection transaction", "id", tx.ID)
+			}
+		case model.TransactionStatusPaymentPending:
+			if s.paymentCanceller != nil {
+				if _, err := s.paymentCanceller.Cancel(context.Background(), tx.ID); err == nil {
+					slog.Info("sweeper: cancelled stale payment_pending transaction", "id", tx.ID)
+				}
+			}
 		}
 	}
 }

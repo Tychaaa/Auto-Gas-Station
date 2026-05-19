@@ -108,3 +108,9 @@ export async function reportInactivityTimeout(transactionId: string): Promise<In
     `/transactions/${encodeTransactionId(transactionId)}/inactivity-timeout`,
   )
 }
+
+// Отменяет оплату в состоянии payment_pending, освобождает терминал.
+export async function cancelPayment(transactionId: string): Promise<PaymentStatusResponse> {
+  const response = await httpPost<unknown>(`/transactions/${encodeTransactionId(transactionId)}/payment/cancel`)
+  return parseNormalizedTransaction(response)
+}

@@ -13,7 +13,7 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-const DefaultVendotekMockBaseURL = "http://localhost:8082"
+const DefaultVendotekBaseURL = "http://localhost:8082"
 
 const (
 	defaultFuelPort      = "COM1"
@@ -41,7 +41,9 @@ type Config struct {
 	InactivityTimeout       time.Duration
 	InactivitySweepInterval time.Duration
 	InactivitySweepEnabled  bool
-	VendotekMockBaseURL     string
+	VendotekBaseURL         string
+	VendotekTimeout         time.Duration
+	VendotekOpIDPrefix      string
 	AdminUsername           string
 	AdminPassword           string
 	FuelSerial              FuelSerialConfig
@@ -116,7 +118,9 @@ func Load() (Config, error) {
 		InactivityTimeout:       inactivityTTL,
 		InactivitySweepInterval: sweepInterval,
 		InactivitySweepEnabled:  envBool("TRANSACTION_IDLE_SWEEP_ENABLED", true),
-		VendotekMockBaseURL:     envString("VENDOTEK_MOCK_BASE_URL", DefaultVendotekMockBaseURL),
+		VendotekBaseURL:         envString("VENDOTEK_BASE_URL", DefaultVendotekBaseURL),
+		VendotekTimeout:         envDuration("VENDOTEK_TIMEOUT", 30*time.Second),
+		VendotekOpIDPrefix:      envString("VENDOTEK_OP_ID_PREFIX", ""),
 		AdminUsername:           adminUsername,
 		AdminPassword:           adminPassword,
 		FuelSerial: FuelSerialConfig{
@@ -222,6 +226,18 @@ func envUint32(name string, fallback uint32) uint32 {
 		return fallback
 	}
 	return uint32(parsed)
+}
+
+func envDuration(name string, fallback time.Duration) time.Duration {
+	value := strings.TrimSpace(os.Getenv(name))
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil || d <= 0 {
+		return fallback
+	}
+	return d
 }
 
 func envBool(name string, fallback bool) bool {

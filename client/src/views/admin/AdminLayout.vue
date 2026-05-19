@@ -55,6 +55,7 @@ onBeforeUnmount(() => {
             { to: '/admin/dispensers', label: 'Колонки', exact: false },
             { to: '/admin/transactions', label: 'Транзакции', exact: false },
             { to: '/admin/equipment', label: 'Оборудование', exact: false },
+            { to: '/admin/shift-reports', label: 'Смена и отчёты ККТ', exact: false },
           ]"
           :key="link.to"
           :to="link.to"

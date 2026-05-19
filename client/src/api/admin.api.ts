@@ -33,7 +33,11 @@ async function adminPost<T>(path: string, payload?: unknown): Promise<T> {
   return adminRequest(() => httpPost<T>(path, payload, authOptions()))
 }
 
-async function adminDelete<T = void>(path: string): Promise<T> {
+async function adminPut<T>(path: string, payload?: unknown): Promise<T> {
+  return adminRequest(() => httpPut<T>(path, payload, authOptions()))
+}
+
+async function adminDelete<T>(path: string): Promise<T> {
   return adminRequest(() => httpDelete<T>(path, authOptions()))
 }
 
@@ -236,8 +240,20 @@ export interface AdminTransactionDetailsView {
   fuelingError: string
   // Прочее
   abandonReason: string
+  // Банковский слип
+  paymentSlip?: AdminPaymentSlipView
   // Журнал событий
   events: AdminTransactionEventView[]
+}
+
+export interface AdminPaymentSlipView {
+  pan: string
+  rrn: string
+  approvalCode: string
+  amount: number
+  date: string
+  posEntryMode: string
+  appLabel: string
 }
 
 interface AdminTransactionsResponse {
@@ -323,4 +339,225 @@ export async function addDispenser(): Promise<AdminDispenserView> {
 
 export async function deleteDispenser(id: number): Promise<void> {
   return adminDelete(`/admin/dispensers/${id}`)
+}
+
+export interface AdminKKTCheckResult {
+  online: boolean
+  mode: number
+  submode: number
+  isShiftOpen: boolean
+  isReceiptOpen: boolean
+  error?: string
+  checkedAt: string
+}
+
+export async function checkKKT(): Promise<AdminKKTCheckResult> {
+  return adminPost<AdminKKTCheckResult>('/admin/equipment/kkt/check', {})
+}
+
+export interface AdminVendotekCheckResult {
+  online: boolean
+  status?: string
+  serialNumber?: string
+  lastOpId?: string
+  info?: string
+  error?: string
+  checkedAt: string
+}
+
+export async function checkVendotek(): Promise<AdminVendotekCheckResult> {
+  return adminPost<AdminVendotekCheckResult>('/admin/equipment/vendotek/check', {})
+}
+
+// ─── Смена и отчёты ККТ ───────────────────────────────────────────────────────
+
+export interface AdminShiftStatus {
+  isOpen: boolean
+  isExpired: boolean
+  shiftNumber: number
+  receiptNum: number
+  openedAt: string
+  hoursOpen: number
+  hoursLeft: number
+}
+
+export async function getShiftStatus(): Promise<AdminShiftStatus> {
+  const r = await adminGet<{
+    is_open: boolean
+    is_expired: boolean
+    shift_number: number
+    receipt_num: number
+    opened_at?: string
+    hours_open: number
+    hours_left: number
+  }>('/admin/shift/status')
+  return {
+    isOpen: r.is_open,
+    isExpired: r.is_expired,
+    shiftNumber: r.shift_number,
+    receiptNum: r.receipt_num,
+    openedAt: r.opened_at ?? '',
+    hoursOpen: r.hours_open,
+    hoursLeft: r.hours_left,
+  }
+}
+
+export interface AdminShiftOpenResult {
+  shiftNumber: number
+  fdNumber: number
+  fiscalSign: number
+}
+
+export async function openShift(): Promise<AdminShiftOpenResult> {
+  const r = await adminPost<{ shift_number: number; fd_number: number; fiscal_sign: number }>(
+    '/admin/shift/open',
+  )
+  return { shiftNumber: r.shift_number, fdNumber: r.fd_number, fiscalSign: r.fiscal_sign }
+}
+
+export interface AdminShiftCloseResult {
+  shiftNumber: number
+  fdNumber: number
+  fiscalSign: number
+}
+
+export async function closeShift(): Promise<AdminShiftCloseResult> {
+  const r = await adminPost<{ shift_number: number; fd_number: number; fiscal_sign: number }>(
+    '/admin/shift/close',
+  )
+  return { shiftNumber: r.shift_number, fdNumber: r.fd_number, fiscalSign: r.fiscal_sign }
+}
+
+export interface AdminShiftReport {
+  id: number
+  shiftNumber: number
+  fdNumber: number
+  fiscalSign: number
+  closedAt: string
+}
+
+interface AdminShiftReportsResponse {
+  items: {
+    id: number
+    shift_number: number
+    fd_number: number
+    fiscal_sign: number
+    closed_at: string
+  }[]
+}
+
+export async function listShiftReports(limit = 200, offset = 0): Promise<AdminShiftReport[]> {
+  const r = await adminGet<AdminShiftReportsResponse>(
+    `/admin/shift/reports?limit=${limit}&offset=${offset}`,
+  )
+  return (r.items ?? []).map((x) => ({
+    id: x.id,
+    shiftNumber: x.shift_number,
+    fdNumber: x.fd_number,
+    fiscalSign: x.fiscal_sign,
+    closedAt: x.closed_at,
+  }))
+}
+
+export async function deleteShiftReport(id: number): Promise<void> {
+  await adminDelete<void>(`/admin/shift/reports/${id}`)
+}
+
+export interface AdminCalcReport {
+  id?: number
+  fdNumber: number
+  fiscalSign: number
+  unconfirmedCount: number
+  firstUnconfirmedDate?: string
+  datetime?: string
+  createdAt?: string
+}
+
+export async function captureCalcReport(): Promise<AdminCalcReport> {
+  const r = await adminPost<{
+    fd_number: number
+    fiscal_sign: number
+    unconfirmed_count: number
+    first_unconfirmed_date?: string
+    datetime?: string
+  }>('/admin/reports/calc-status')
+  return {
+    fdNumber: r.fd_number,
+    fiscalSign: r.fiscal_sign,
+    unconfirmedCount: r.unconfirmed_count,
+    firstUnconfirmedDate: r.first_unconfirmed_date,
+    datetime: r.datetime,
+  }
+}
+
+interface AdminCalcReportsResponse {
+  items: {
+    id: number
+    fd_number: number
+    fiscal_sign: number
+    unconfirmed_count: number
+    first_unconfirmed_date?: string
+    datetime?: string
+    created_at: string
+  }[]
+}
+
+export async function listCalcReports(limit = 200, offset = 0): Promise<AdminCalcReport[]> {
+  const r = await adminGet<AdminCalcReportsResponse>(
+    `/admin/reports/calc-status/history?limit=${limit}&offset=${offset}`,
+  )
+  return (r.items ?? []).map((x) => ({
+    id: x.id,
+    fdNumber: x.fd_number,
+    fiscalSign: x.fiscal_sign,
+    unconfirmedCount: x.unconfirmed_count,
+    firstUnconfirmedDate: x.first_unconfirmed_date,
+    datetime: x.datetime,
+    createdAt: x.created_at,
+  }))
+}
+
+export async function deleteCalcReport(id: number): Promise<void> {
+  await adminDelete<void>(`/admin/reports/calc-status/history/${id}`)
+}
+
+// ─── Header lines (шапка чека) ───────────────────────────────────────────────
+
+export interface AdminHeaderLine {
+  id: number
+  position: number
+  text: string
+}
+
+interface AdminHeaderLinesResponse {
+  items: AdminHeaderLine[]
+}
+
+export async function listHeaderLines(): Promise<AdminHeaderLine[]> {
+  const r = await adminGet<AdminHeaderLinesResponse>('/admin/kkt/header-lines')
+  return r.items ?? []
+}
+
+export async function createHeaderLine(payload: {
+  position: number
+  text: string
+}): Promise<AdminHeaderLine> {
+  return adminPost<AdminHeaderLine>('/admin/kkt/header-lines', payload)
+}
+
+export async function updateHeaderLine(
+  id: number,
+  payload: { position: number; text: string },
+): Promise<void> {
+  await adminPut<unknown>(`/admin/kkt/header-lines/${id}`, payload)
+}
+
+export async function deleteHeaderLine(id: number): Promise<void> {
+  await adminDelete<void>(`/admin/kkt/header-lines/${id}`)
+}
+
+export async function replaceHeaderLines(
+  lines: { position: number; text: string }[],
+): Promise<void> {
+  await adminPut<unknown>('/admin/kkt/header-lines', { lines })
 }

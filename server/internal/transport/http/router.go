@@ -46,6 +46,7 @@ func RegisterTransactionRoutes(r *gin.Engine, transactions *handlers.Transaction
 		tx.POST("/inactivity-timeout", transactions.InactivityTimeout)
 		tx.POST("/payment/start", payments.Start)
 		tx.POST("/payment/status", payments.Status)
+		tx.POST("/payment/cancel", payments.Cancel)
 		// Фискализация запускается автоматически после успешной оплаты (см. PaymentService).
 		// Состояние чека всегда отдается в полях FiscalStatus / ReceiptNumber транзакции.
 	}
@@ -84,6 +85,25 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.PUT("/dispensers/:id", dispenser.Assign)
 		group.DELETE("/dispensers/:id", dispenser.Delete)
 		group.POST("/equipment/dispenser/:id/check", equipment.CheckDispenser)
+		group.POST("/equipment/dispenser/check", equipment.CheckDispenser)
+		group.POST("/equipment/kkt/check", equipment.CheckKKT)
+		group.POST("/equipment/vendotek/check", equipment.CheckVendotek)
+
+		group.GET("/shift/status", admin.ShiftStatus)
+		group.POST("/shift/open", admin.OpenShift)
+		group.POST("/shift/close", admin.CloseShift)
+		group.GET("/shift/reports", admin.ListShiftReports)
+		group.DELETE("/shift/reports/:id", admin.DeleteShiftReport)
+
+		group.POST("/reports/calc-status", admin.CalcStatusReport)
+		group.GET("/reports/calc-status/history", admin.ListCalcReports)
+		group.DELETE("/reports/calc-status/history/:id", admin.DeleteCalcReport)
+
+		group.GET("/kkt/header-lines", admin.ListHeaderLines)
+		group.PUT("/kkt/header-lines", admin.ReplaceHeaderLines)
+		group.POST("/kkt/header-lines", admin.CreateHeaderLine)
+		group.PUT("/kkt/header-lines/:id", admin.UpdateHeaderLine)
+		group.DELETE("/kkt/header-lines/:id", admin.DeleteHeaderLine)
 	}
 }
 

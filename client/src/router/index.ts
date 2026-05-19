@@ -115,6 +115,11 @@ const routes: RouteRecordRaw[] = [
         name: 'admin-equipment',
         component: () => import('@/views/admin/AdminEquipmentView.vue'),
       },
+      {
+        path: 'shift-reports',
+        name: 'admin-shift-reports',
+        component: () => import('@/views/admin/AdminShiftReportsView.vue'),
+      },
     ],
   },
   {

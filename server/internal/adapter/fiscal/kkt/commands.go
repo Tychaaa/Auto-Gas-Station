@@ -34,12 +34,17 @@ func (c CommandCode) Hex() string {
 
 // Список поддерживаемых команд в этом клиенте.
 const (
-	CmdShortStatus  CommandCode = 0x10   // Короткий запрос состояния
-	CmdLongStatus   CommandCode = 0x11   // Запрос состояния ККТ (длинный)
-	CmdSendTLV      CommandCode = 0xFF0C // Передать произвольную TLV структуру
-	CmdShiftParams  CommandCode = 0xFF40 // Запрос параметров текущей смены
-	CmdCloseReceipt CommandCode = 0xFF45 // Закрытие чека расширенное вариант №2
-	CmdOperationV2  CommandCode = 0xFF46 // Операция V2
+	CmdShortStatus      CommandCode = 0x10   // Короткий запрос состояния
+	CmdLongStatus       CommandCode = 0x11   // Запрос состояния ККТ (длинный)
+	CmdPrintString      CommandCode = 0x17   // Печать строки (нефискальный текст)
+	CmdCloseShiftZ      CommandCode = 0x41   // Суточный отчёт с гашением (Z)
+	CmdSendTLV          CommandCode = 0xFF0C // Передать произвольную TLV структуру
+	CmdReportCalcStart  CommandCode = 0xFF37 // Начать формирование отчёта о состоянии расчётов
+	CmdReportCalcForm   CommandCode = 0xFF38 // Сформировать отчёт о состоянии расчётов (ФФД 0x17)
+	CmdShiftParams      CommandCode = 0xFF40 // Запрос параметров текущей смены
+	CmdCloseReceipt     CommandCode = 0xFF45 // Закрытие чека расширенное вариант №2
+	CmdOperationV2      CommandCode = 0xFF46 // Операция V2
+	CmdOpenShift        CommandCode = 0xE0   // Открыть смену
 )
 
 // Тип операции для FF46h.
@@ -62,14 +67,24 @@ func (c CommandCode) Name() string {
 		return "Короткий запрос состояния"
 	case CmdLongStatus:
 		return "Запрос состояния ККТ"
+	case CmdPrintString:
+		return "Печать строки"
+	case CmdCloseShiftZ:
+		return "Суточный отчёт с гашением (Z)"
 	case CmdSendTLV:
 		return "Передать TLV"
+	case CmdReportCalcStart:
+		return "Начать формирование отчёта о состоянии расчётов"
+	case CmdReportCalcForm:
+		return "Сформировать отчёт о состоянии расчётов"
 	case CmdShiftParams:
 		return "Запрос параметров текущей смены"
 	case CmdCloseReceipt:
 		return "Закрытие чека V2"
 	case CmdOperationV2:
 		return "Операция V2"
+	case CmdOpenShift:
+		return "Открыть смену"
 	default:
 		return "Команда " + c.Hex()
 	}
