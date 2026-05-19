@@ -77,48 +77,29 @@ type Transaction struct {
 	DispenserID      int
 }
 
-// Проверяет топливо и ровно один вариант заказа сумма литры или пресет
+// Проверяет топливо и параметры заказа согласно OrderMode.
+// tx.Liters не проверяется как пользовательский ввод — для режимов amount/preset
+// это вычисляемое поле, заполняемое ApplySelectionPricing.
 func (t *Transaction) ValidateSelection() error {
 	if t.FuelType == "" {
 		return errors.New("fuel type is required")
 	}
 
-	n := 0
-	if t.AmountRub > 0 {
-		n++
-	}
-	if t.Liters > 0 {
-		n++
-	}
-	if t.Preset != "" {
-		n++
-	}
-	if n == 0 {
-		return errors.New("exactly one order option is required")
-	}
-	if n > 1 {
-		return errors.New("only one order option may be set")
-	}
-
 	switch t.OrderMode {
-	case "amount", "liters", "preset":
+	case "amount":
+		if t.AmountRub <= 0 {
+			return errors.New("amountRub must be > 0 for amount mode")
+		}
+	case "liters":
+		if t.Liters <= 0 {
+			return errors.New("liters must be > 0 for liters mode")
+		}
+	case "preset":
+		if t.Preset == "" {
+			return errors.New("preset is required for preset mode")
+		}
 	default:
 		return errors.New("invalid order mode")
-	}
-
-	switch {
-	case t.AmountRub > 0:
-		if t.OrderMode != "amount" {
-			return errors.New("order mode must be amount when amount is set")
-		}
-	case t.Liters > 0:
-		if t.OrderMode != "liters" {
-			return errors.New("order mode must be liters when liters are set")
-		}
-	case t.Preset != "":
-		if t.OrderMode != "preset" {
-			return errors.New("order mode must be preset when preset is set")
-		}
 	}
 
 	return nil
