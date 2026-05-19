@@ -157,11 +157,13 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
   function applyTransaction(nextTransaction: Transaction): void {
     transaction.value = nextTransaction
     transactionId.value = nextTransaction.id
+    // Обнуляем поле, не соответствующее режиму, чтобы сохранить инвариант
+    // isSelectionDraftValid: ровно одно из amountRub/liters ненулевое.
     selectionDraft.value = {
       fuelType: nextTransaction.fuelType,
       orderMode: nextTransaction.orderMode,
-      amountRub: nextTransaction.amountRub,
-      liters: nextTransaction.liters,
+      amountRub: nextTransaction.orderMode === 'liters' ? 0 : nextTransaction.amountRub,
+      liters: nextTransaction.orderMode === 'amount' ? 0 : nextTransaction.liters,
     }
   }
 
