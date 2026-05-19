@@ -142,7 +142,7 @@ func (s *PriceService) ApplySelectionPricing(tx *model.Transaction, lockTTL time
 	if err != nil {
 		return err
 	}
-	amountMinor, err := ComputeAmountMinor(tx.OrderMode, tx.AmountRub, tx.Liters, tx.Preset, price.PricePerLiterMinor)
+	computedLiters, amountMinor, err := ComputeOrderTotals(tx.OrderMode, tx.AmountRub, tx.Liters, tx.Preset, price.PricePerLiterMinor)
 	if err != nil {
 		return err
 	}
@@ -151,6 +151,7 @@ func (s *PriceService) ApplySelectionPricing(tx *model.Transaction, lockTTL time
 	tx.PriceVersionID = price.PriceVersionID
 	tx.PriceVersionTag = price.PriceVersionTag
 	tx.UnitPriceMinor = price.PricePerLiterMinor
+	tx.Liters = computedLiters
 	tx.ComputedAmountMinor = amountMinor
 	tx.Currency = price.Currency
 	tx.PricingSnapshotAt = now
@@ -170,7 +171,7 @@ func (s *PriceService) RepriceIfNeeded(tx *model.Transaction, lockTTL time.Durat
 	if err != nil {
 		return false, err
 	}
-	amountMinor, err := ComputeAmountMinor(tx.OrderMode, tx.AmountRub, tx.Liters, tx.Preset, price.PricePerLiterMinor)
+	computedLiters, amountMinor, err := ComputeOrderTotals(tx.OrderMode, tx.AmountRub, tx.Liters, tx.Preset, price.PricePerLiterMinor)
 	if err != nil {
 		return false, err
 	}
@@ -178,6 +179,7 @@ func (s *PriceService) RepriceIfNeeded(tx *model.Transaction, lockTTL time.Durat
 	tx.PriceVersionID = price.PriceVersionID
 	tx.PriceVersionTag = price.PriceVersionTag
 	tx.UnitPriceMinor = price.PricePerLiterMinor
+	tx.Liters = computedLiters
 	tx.ComputedAmountMinor = amountMinor
 	tx.Currency = price.Currency
 	tx.PricingSnapshotAt = now
@@ -186,51 +188,84 @@ func (s *PriceService) RepriceIfNeeded(tx *model.Transaction, lockTTL time.Durat
 	return true, nil
 }
 
-func ComputeAmountMinor(orderMode string, amountRub int64, liters float64, preset string, pricePerLiterMinor int64) (int64, error) {
+// ComputeOrderTotals возвращает литры (с сеткой 0.01 л) и сумму в копейках.
+//
+// Правило безопасного округления:
+//   - amount / fast_<N>: литры ceil (клиент получает не меньше оплаченного)
+//   - liters / liters_<N>: рубли floor (клиент платит не больше, чем стоит объём)
+func ComputeOrderTotals(orderMode string, amountRub int64, liters float64, preset string, pricePerLiterMinor int64) (computedLiters float64, amountMinor int64, err error) {
 	switch orderMode {
 	case "amount":
 		if amountRub <= 0 {
-			return 0, errors.New("amountRub must be > 0")
-		}
-		return amountRub * 100, nil
-	case "liters":
-		if liters <= 0 {
-			return 0, errors.New("liters must be > 0")
+			return 0, 0, errors.New("amountRub must be > 0")
 		}
 		if pricePerLiterMinor <= 0 {
-			return 0, errors.New("price per liter must be > 0")
+			return 0, 0, errors.New("price per liter must be > 0")
 		}
-		return int64(math.Round(liters * float64(pricePerLiterMinor))), nil
+		amountMinor = amountRub * 100
+		litersCenti := ceilDiv(amountMinor*100, pricePerLiterMinor)
+		computedLiters = float64(litersCenti) / 100
+		return computedLiters, amountMinor, nil
+	case "liters":
+		if liters <= 0 {
+			return 0, 0, errors.New("liters must be > 0")
+		}
+		if pricePerLiterMinor <= 0 {
+			return 0, 0, errors.New("price per liter must be > 0")
+		}
+		return totalsFromLiters(liters, pricePerLiterMinor)
 	case "preset":
-		return amountMinorFromPreset(preset, pricePerLiterMinor)
+		return totalsFromPreset(preset, pricePerLiterMinor)
 	default:
-		return 0, errors.New("invalid order mode")
+		return 0, 0, errors.New("invalid order mode")
 	}
 }
 
-func amountMinorFromPreset(preset string, pricePerLiterMinor int64) (int64, error) {
+// ceilDiv делит a на b с округлением вверх (a, b > 0).
+func ceilDiv(a, b int64) int64 {
+	return (a + b - 1) / b
+}
+
+// totalsFromLiters вычисляет (литры, копейки) для режима liters / liters_<N>.
+// Сумма округляется вниз, чтобы клиент не платил за объём, которого не получит.
+func totalsFromLiters(liters float64, pricePerLiterMinor int64) (computedLiters float64, amountMinor int64, err error) {
+	litersCenti := int64(math.Round(liters * 100))
+	if litersCenti <= 0 {
+		return 0, 0, errors.New("liters rounds to zero")
+	}
+	amountMinor = (litersCenti * pricePerLiterMinor) / 100 // целочисленное деление = floor
+	if amountMinor <= 0 {
+		return 0, 0, errors.New("computed amount is not positive")
+	}
+	return float64(litersCenti) / 100, amountMinor, nil
+}
+
+func totalsFromPreset(preset string, pricePerLiterMinor int64) (computedLiters float64, amountMinor int64, err error) {
 	normalizedPreset := strings.TrimSpace(preset)
 	if normalizedPreset == "" {
-		return 0, errors.New("preset is required")
+		return 0, 0, errors.New("preset is required")
 	}
-	if strings.HasPrefix(normalizedPreset, "fast_") {
-		rawAmount := strings.TrimPrefix(normalizedPreset, "fast_")
-		amountRub, err := strconv.ParseInt(rawAmount, 10, 64)
-		if err != nil || amountRub <= 0 {
-			return 0, fmt.Errorf("invalid amount preset: %s", normalizedPreset)
-		}
-		return amountRub * 100, nil
-	}
-	if strings.HasPrefix(normalizedPreset, "liters_") {
-		rawLiters := strings.TrimPrefix(normalizedPreset, "liters_")
-		liters, err := strconv.ParseFloat(rawLiters, 64)
-		if err != nil || liters <= 0 {
-			return 0, fmt.Errorf("invalid liters preset: %s", normalizedPreset)
+	if rawAmount, ok := strings.CutPrefix(normalizedPreset, "fast_"); ok {
+		amountRub, parseErr := strconv.ParseInt(rawAmount, 10, 64)
+		if parseErr != nil || amountRub <= 0 {
+			return 0, 0, fmt.Errorf("invalid amount preset: %s", normalizedPreset)
 		}
 		if pricePerLiterMinor <= 0 {
-			return 0, errors.New("price per liter must be > 0")
+			return 0, 0, errors.New("price per liter must be > 0")
 		}
-		return int64(math.Round(liters * float64(pricePerLiterMinor))), nil
+		minor := amountRub * 100
+		litersCenti := ceilDiv(minor*100, pricePerLiterMinor)
+		return float64(litersCenti) / 100, minor, nil
 	}
-	return 0, fmt.Errorf("unknown preset: %s", normalizedPreset)
+	if rawLiters, ok := strings.CutPrefix(normalizedPreset, "liters_"); ok {
+		l, parseErr := strconv.ParseFloat(rawLiters, 64)
+		if parseErr != nil || l <= 0 {
+			return 0, 0, fmt.Errorf("invalid liters preset: %s", normalizedPreset)
+		}
+		if pricePerLiterMinor <= 0 {
+			return 0, 0, errors.New("price per liter must be > 0")
+		}
+		return totalsFromLiters(l, pricePerLiterMinor)
+	}
+	return 0, 0, fmt.Errorf("unknown preset: %s", normalizedPreset)
 }
