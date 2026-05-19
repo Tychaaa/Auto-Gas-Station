@@ -151,23 +151,13 @@ func buildReceiptInput(tx *model.Transaction) (fiscal.ReceiptInput, error) {
 	}, nil
 }
 
-// computeQuantityMicro считает литры * 1_000_000 для FF46h:
-//   - если в заказе явно указаны литры - берём их;
-//   - иначе восстанавливаем литры из (ComputedAmountMinor / UnitPriceMinor).
-//
-// Округление до 6-го знака идёт math.Round(...), чтобы не терять копейки.
+// computeQuantityMicro считает литры * 1_000_000 для FF46h.
+// tx.Liters всегда заполняется в ApplySelectionPricing для обоих режимов заказа.
 func computeQuantityMicro(tx *model.Transaction) (int64, error) {
-	if tx.Liters > 0 {
-		q := int64(math.Round(tx.Liters * 1_000_000))
-		if q <= 0 {
-			return 0, errors.New("computed quantity is not positive")
-		}
-		return q, nil
+	if tx.Liters <= 0 {
+		return 0, errors.New("transaction has no liters")
 	}
-	if tx.UnitPriceMinor <= 0 {
-		return 0, errors.New("cannot compute quantity without unit price")
-	}
-	q := int64(math.Round(float64(tx.ComputedAmountMinor) * 1_000_000.0 / float64(tx.UnitPriceMinor)))
+	q := int64(math.Round(tx.Liters * 1_000_000))
 	if q <= 0 {
 		return 0, errors.New("computed quantity is not positive")
 	}

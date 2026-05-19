@@ -6,6 +6,7 @@ import (
 	nethttp "net/http"
 
 	"AUTO-GAS-STATION/server/internal/dto"
+	"AUTO-GAS-STATION/server/internal/model"
 	"AUTO-GAS-STATION/server/internal/repository"
 	"AUTO-GAS-STATION/server/internal/service"
 	"github.com/gin-gonic/gin"
@@ -14,10 +15,11 @@ import (
 type TransactionHandler struct {
 	transactions *service.TransactionService
 	prices       *service.PriceService
+	dispensers   *service.DispenserService
 }
 
-func NewTransactionHandler(transactions *service.TransactionService, prices *service.PriceService) *TransactionHandler {
-	return &TransactionHandler{transactions: transactions, prices: prices}
+func NewTransactionHandler(transactions *service.TransactionService, prices *service.PriceService, dispensers *service.DispenserService) *TransactionHandler {
+	return &TransactionHandler{transactions: transactions, prices: prices, dispensers: dispensers}
 }
 
 func (h *TransactionHandler) CreateTransaction(c *gin.Context) {
@@ -99,7 +101,34 @@ func (h *TransactionHandler) FuelPrices(c *gin.Context) {
 		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
 		return
 	}
-	c.JSON(nethttp.StatusOK, gin.H{"items": prices})
+
+	dispenserList, err := h.dispensers.ListDispensers()
+	if err != nil {
+		c.JSON(nethttp.StatusBadGateway, gin.H{"error": err.Error()})
+		return
+	}
+
+	priceByFuel := make(map[string]model.FuelPriceView, len(prices))
+	for _, p := range prices {
+		priceByFuel[p.FuelType] = p
+	}
+
+	// Iterate dispensers in sort order, include only enabled ones with a known price.
+	result := make([]model.FuelPriceView, 0, len(dispenserList))
+	for _, d := range dispenserList {
+		if !d.Enabled || d.FuelType == "" {
+			continue
+		}
+		p, ok := priceByFuel[d.FuelType]
+		if !ok {
+			continue
+		}
+		p.DispenserID = d.ID
+		p.DispenserLabel = d.Label
+		result = append(result, p)
+	}
+
+	c.JSON(nethttp.StatusOK, gin.H{"items": result})
 }
 
 func writeTransactionError(c *gin.Context, err error, conflict error) {

@@ -207,7 +207,7 @@ func New(cfg Config) (*App, error) {
 	})
 	watchdogService.Start()
 
-	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
+	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService, dispenserService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
 	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter, dispenserService)
 	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService, shiftService)

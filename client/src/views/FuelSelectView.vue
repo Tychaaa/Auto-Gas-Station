@@ -13,7 +13,6 @@ const store = useTransactionFlowStore()
 
 // Шаги индикатора в верхней части экрана
 const STEPS = ['Топливо', 'Параметры', 'Оплата', 'Заправка'] as const
-const FUEL_DISPLAY_ORDER = ['АИ-92', 'АИ-95', 'АИ-100', 'ДТ'] as const
 
 const fuelPrices = ref<FuelPrice[]>([])
 const isLoadingPrices = ref(false)
@@ -21,26 +20,11 @@ const pricesLoadError = ref('')
 
 const selectedFuel = computed(() => store.selectionDraft.fuelType)
 const hasFuelPrices = computed(() => fuelPrices.value.length > 0)
-const orderedFuelPrices = computed(() => {
-  const orderIndexMap = new Map<string, number>()
-  FUEL_DISPLAY_ORDER.forEach((fuelType, index) => {
-    orderIndexMap.set(fuelType, index)
-  })
 
-  return [...fuelPrices.value].sort((left, right) => {
-    const leftIndex = orderIndexMap.get(left.fuelType) ?? Number.MAX_SAFE_INTEGER
-    const rightIndex = orderIndexMap.get(right.fuelType) ?? Number.MAX_SAFE_INTEGER
-
-    if (leftIndex !== rightIndex) {
-      return leftIndex - rightIndex
-    }
-    return left.fuelType.localeCompare(right.fuelType, 'ru')
-  })
-})
-
-// Сохраняет выбранный тип топлива в store
-function selectFuel(fuelId: string): void {
-  store.setSelectionDraft({ fuelType: fuelId })
+// Сохраняет выбранную колонку и вид топлива
+function selectFuel(fuel: FuelPrice): void {
+  store.setSelectedDispenserId(fuel.dispenserId)
+  store.setSelectionDraft({ fuelType: fuel.fuelType })
 }
 
 // Переход к шагу выбора параметров
@@ -111,24 +95,24 @@ onMounted(() => {
 
       <div
         v-else
-        class="grid grid-cols-4 gap-5 w-full max-w-5xl"
+        class="flex flex-wrap justify-center gap-5 w-full max-w-5xl"
         role="group"
         aria-label="Виды топлива"
       >
         <div
-          v-for="(fuel, index) in orderedFuelPrices"
-          :key="fuel.fuelType"
-          class="flex flex-col items-center gap-2"
+          v-for="fuel in fuelPrices"
+          :key="fuel.dispenserId"
+          class="flex flex-col items-center gap-2 w-56"
         >
           <p class="font-karla text-sm text-fuel-olive">
-            Колонка {{ index + 1 }}
+            {{ fuel.dispenserLabel }}
           </p>
           <FuelCard
             :name="fuel.name"
             :grade="fuel.grade"
             :price-per-liter="fuel.pricePerLiter"
-            :selected="selectedFuel === fuel.fuelType"
-            @select="selectFuel(fuel.fuelType)"
+            :selected="store.selectedDispenserId === fuel.dispenserId"
+            @select="selectFuel(fuel)"
           />
         </div>
       </div>
