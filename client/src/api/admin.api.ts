@@ -297,9 +297,8 @@ export interface AdminDispenserView {
   fuelType: string
   label: string
   enabled: boolean
-  tankVolume: number
-  tankRemaining: number
   updatedAt: string
+  // TODO(топливомер): добавить tankVolume и tankRemaining когда будет интеграция с датчиком уровня топлива
 }
 
 export interface UpdateDispenserPayload {

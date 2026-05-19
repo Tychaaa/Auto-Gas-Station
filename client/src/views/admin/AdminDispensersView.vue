@@ -128,9 +128,10 @@ async function onSave(dispenser: AdminDispenserView): Promise<void> {
               {{ drafts[dispenser.id]?.fuelType || '—' }}
             </span>
 
-            <span class="font-karla text-sm text-fuel-olive/70">
+            <!-- TODO(топливомер): показывать остаток и объём резервуара когда будет датчик уровня топлива -->
+            <!-- <span class="font-karla text-sm text-fuel-olive/70">
               {{ dispenser.tankRemaining.toLocaleString('ru-RU') }} л / {{ dispenser.tankVolume.toLocaleString('ru-RU') }} л
-            </span>
+            </span> -->
 
             <span
               class="font-karla text-xs font-semibold tracking-wide px-3 py-1 rounded-full"
