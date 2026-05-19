@@ -1,6 +1,24 @@
+// Mock Vendotek EzPOS terminal.
+//
+// Реализует HTTP/JSON сервер по протоколу EzPOS v1.5.
+// Поддерживаемые эндпоинты:
+//
+//	POST /async/cashless/sale[/card|/qr] — создать операцию
+//	GET  /sale?id=...                    — опросить статус
+//	POST /async/cashless/sale/cancel?id= — запрос отмены
+//	POST /async/cashless/reversal?id=    — запрос возврата
+//	POST /async/fiscal?id=               — заглушка 405 (вариант B: фискализация на нашей ККТ)
+//	GET  /status                         — состояние терминала
+//	POST /show/qr, POST /screen          — заглушки 200
+//
+// Debug-эндпоинты (не часть EzPOS, только для разработчика):
+//
+//	POST /debug/ops/:id/approve|decline|reverted|cancel
 package main
 
 import (
+	"encoding/json"
+	"fmt"
 	"log"
 	"math/rand"
 	"net/http"
@@ -14,450 +32,463 @@ import (
 	"github.com/joho/godotenv"
 )
 
-type SessionStatus string
+type opStatus string
 
 const (
-	// Статусы жизненного цикла платежной сессии
-	SessionStatusCreated    SessionStatus = "created"
-	SessionStatusPending    SessionStatus = "pending"
-	SessionStatusProcessing SessionStatus = "processing"
-	SessionStatusApproved   SessionStatus = "approved"
-	SessionStatusDeclined   SessionStatus = "declined"
-	SessionStatusCancelled  SessionStatus = "cancelled"
-	SessionStatusTimeout    SessionStatus = "timeout"
+	opCreated    opStatus = "created"
+	opWaitCard   opStatus = "wait_for_card"
+	opInProgress opStatus = "in_progress"
+	opCompleted  opStatus = "completed"
+	opReverted   opStatus = "reverted"
+	opFail       opStatus = "fail"
 )
 
-type Scenario string
+type scenario string
 
 const (
-	// Сценарии для эмуляции разных ответов терминала
-	ScenarioApproved Scenario = "approved"
-	ScenarioDeclined Scenario = "declined"
-	ScenarioTimeout  Scenario = "timeout"
-	ScenarioRandom   Scenario = "random"
+	scenarioSuccess  scenario = "success"
+	scenarioDecline  scenario = "decline"
+	scenarioTimeout  scenario = "timeout"
+	scenarioReverted scenario = "reverted"
 )
 
-type Session struct {
-	// Данные, которые возвращаются по API
-	ID                    string        `json:"sessionId"`
-	ExternalTransactionID string        `json:"externalTransactionId,omitempty"`
-	AmountMinor           int64         `json:"amountMinor"`
-	Currency              string        `json:"currency"`
-	Status                SessionStatus `json:"status"`
-	Scenario              Scenario      `json:"scenario"`
-	Error                 string        `json:"error,omitempty"`
-	CreatedAt             time.Time     `json:"createdAt"`
-	UpdatedAt             time.Time     `json:"updatedAt"`
-	StartedAt             *time.Time    `json:"startedAt,omitempty"`
+type slip struct {
+	PAN          string `json:"pan"`
+	RRN          string `json:"rrn"`
+	ApprovalCode string `json:"approval_code"`
+	Amount       int64  `json:"amount"`
+	Date         string `json:"date"`
+	POSEntryMode string `json:"pos_entry_mode"`
+	AppLabel     string `json:"app_label"`
 }
 
-type storedSession struct {
-	// Внутреннее представление сессии в памяти
-	Session
-	autoOutcome  SessionStatus
-	autoComplete time.Time
+type saleReq struct {
+	ID       string `json:"id"`
+	Sum      int64  `json:"sum"`
+	Currency string `json:"currency"`
 }
 
-type eventRecord struct {
-	// История действий для отладки
-	SessionID string    `json:"sessionId,omitempty"`
-	Type      string    `json:"type"`
-	Details   string    `json:"details,omitempty"`
-	Time      time.Time `json:"time"`
+type saleResp struct {
+	ID     string   `json:"id"`
+	Status opStatus `json:"status"`
+	Info   string   `json:"info,omitempty"`
+	Slip   *slip    `json:"slip,omitempty"`
+}
+
+type storedOp struct {
+	id          string
+	sum         int64
+	currency    string
+	status      opStatus
+	info        string
+	sl          *slip
+	waitCardAt  time.Time
+	progressAt  time.Time
+	finalizeAt  time.Time
+	autoOutcome opStatus
 }
 
 type mockConfig struct {
-	// Настройки поведения мок сервиса
-	DefaultScenario  Scenario `json:"defaultScenario"`
-	AutoDelayMS      int      `json:"autoDelayMs"`
-	RandomDeclinePct int      `json:"randomDeclinePct"`
+	defaultScenario  scenario
+	autoWaitMS       int
+	autoDelayMS      int
+	timeoutMS        int
+	randomDeclinePct int
+	serialNumber     string
+	debug            bool
 }
 
 type store struct {
-	// Потокобезопасное in-memory хранилище
-	mu       sync.RWMutex
-	sessions map[string]*storedSession
-	events   []eventRecord
-	counter  int64
-	config   mockConfig
+	mu       sync.Mutex
+	ops      map[string]*storedOp
+	lastOpID string
+	cfg      mockConfig
 	rng      *rand.Rand
 }
 
 func newStore(cfg mockConfig) *store {
 	return &store{
-		sessions: make(map[string]*storedSession),
-		events:   make([]eventRecord, 0, 128),
-		config:   cfg,
-		rng:      rand.New(rand.NewSource(time.Now().UnixNano())),
+		ops: make(map[string]*storedOp),
+		cfg: cfg,
+		rng: rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
-func (s *store) appendEvent(sessionID string, eventType string, details string) {
-	// Храним только последние события, чтобы не разрасталась память
-	s.events = append(s.events, eventRecord{
-		SessionID: sessionID,
-		Type:      eventType,
-		Details:   details,
-		Time:      time.Now(),
-	})
-	if len(s.events) > 300 {
-		s.events = s.events[len(s.events)-300:]
-	}
-}
-
-func (s *store) nextID() string {
-	s.counter++
-	return "vts_" + strconv.FormatInt(time.Now().UnixNano(), 10) + "_" + strconv.FormatInt(s.counter, 10)
-}
-
-func (s *store) createSession(req createSessionRequest) Session {
+func (s *store) create(id string, sum int64, currency string) (*saleResp, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	now := time.Now()
-	// Если сценарий не передали или он невалидный, берем дефолт из конфига
-	scenario := s.resolveScenario(req.Scenario)
-
-	session := &storedSession{
-		Session: Session{
-			ID:                    s.nextID(),
-			ExternalTransactionID: strings.TrimSpace(req.ExternalTransactionID),
-			AmountMinor:           req.AmountMinor,
-			Currency:              normalizeCurrency(req.Currency),
-			Status:                SessionStatusCreated,
-			Scenario:              scenario,
-			CreatedAt:             now,
-			UpdatedAt:             now,
-		},
-	}
-	s.sessions[session.ID] = session
-	s.appendEvent(session.ID, "session_created", "status=created")
-	return session.Session
-}
-
-func (s *store) getSession(id string) (Session, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, ok := s.sessions[id]
-	if !ok {
-		return Session{}, false
-	}
-
-	s.applyAutoResultIfDue(session)
-	return session.Session, true
-}
-
-func (s *store) startSession(id string) (Session, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	session, ok := s.sessions[id]
-	if !ok {
-		return Session{}, errSessionNotFound
-	}
-
-	s.applyAutoResultIfDue(session)
-	if isFinalStatus(session.Status) {
-		return session.Session, nil
+	if _, exists := s.ops[id]; exists {
+		return nil, &apiErr{http.StatusConflict, "operation already exists"}
 	}
 
 	now := time.Now()
-	if session.StartedAt == nil {
-		session.StartedAt = &now
+	waitDur := time.Duration(s.cfg.autoWaitMS) * time.Millisecond
+	outcome := s.chooseOutcome()
+
+	var delayDur time.Duration
+	if outcome == opFail && s.cfg.defaultScenario == scenarioTimeout {
+		delayDur = time.Duration(s.cfg.timeoutMS) * time.Millisecond
+	} else {
+		delayDur = time.Duration(s.cfg.autoDelayMS) * time.Millisecond
 	}
-	session.Status = SessionStatusProcessing
-	session.UpdatedAt = now
 
-	delay := time.Duration(s.config.AutoDelayMS) * time.Millisecond
-	if delay < 0 {
-		delay = 0
+	op := &storedOp{
+		id:          id,
+		sum:         sum,
+		currency:    normalizeCurrency(currency),
+		status:      opCreated,
+		waitCardAt:  now.Add(waitDur),
+		progressAt:  now.Add(waitDur + delayDur/2),
+		finalizeAt:  now.Add(waitDur + delayDur),
+		autoOutcome: outcome,
 	}
+	s.ops[id] = op
+	s.lastOpID = id
 
-	// Планируем автоматический итог после задержки
-	outcome := chooseOutcomeForScenario(session.Scenario, s.config, s.rng)
-	session.autoOutcome = outcome
-	session.autoComplete = now.Add(delay)
-
-	s.appendEvent(session.ID, "session_started", "scheduled="+string(outcome))
-	return session.Session, nil
+	if s.cfg.debug {
+		log.Printf("vendotek mock: CREATE id=%s sum=%d outcome=%s", id, sum, outcome)
+	}
+	return opToResp(op), nil
 }
 
-func (s *store) finalizeSessionManually(id string, target SessionStatus, reason string) (Session, error) {
+func (s *store) get(id string) (*saleResp, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session, ok := s.sessions[id]
+	op, ok := s.ops[id]
 	if !ok {
-		return Session{}, errSessionNotFound
+		return nil, false
 	}
-
-	s.applyAutoResultIfDue(session)
-	if isFinalStatus(session.Status) {
-		return session.Session, nil
-	}
-
-	session.Status = target
-	session.Error = reason
-	session.UpdatedAt = time.Now()
-	session.autoOutcome = ""
-	session.autoComplete = time.Time{}
-
-	s.appendEvent(session.ID, "manual_finalize", "status="+string(target))
-	return session.Session, nil
+	s.tick(op)
+	return opToResp(op), true
 }
 
-func (s *store) setSessionScenario(id string, scenario Scenario) (Session, error) {
+func (s *store) cancel(id string) (*saleResp, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	session, ok := s.sessions[id]
+	op, ok := s.ops[id]
 	if !ok {
-		return Session{}, errSessionNotFound
+		return nil, &apiErr{http.StatusNotFound, "operation not found"}
 	}
-	s.applyAutoResultIfDue(session)
-	if isFinalStatus(session.Status) {
-		return session.Session, nil
-	}
+	s.tick(op)
 
-	session.Scenario = scenario
-	session.UpdatedAt = time.Now()
-	s.appendEvent(session.ID, "scenario_changed", "scenario="+string(scenario))
-
-	// Если сессия уже в обработке, сразу пересчитываем автозавершение
-	if session.Status == SessionStatusProcessing {
-		outcome := chooseOutcomeForScenario(session.Scenario, s.config, s.rng)
-		session.autoOutcome = outcome
-		session.autoComplete = time.Now().Add(time.Duration(s.config.AutoDelayMS) * time.Millisecond)
-		s.appendEvent(session.ID, "auto_rescheduled", "scheduled="+string(outcome))
-	}
-
-	return session.Session, nil
-}
-
-func (s *store) setConfig(req updateConfigRequest) mockConfig {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	if req.DefaultScenario != nil {
-		s.config.DefaultScenario = *req.DefaultScenario
-	}
-	if req.AutoDelayMS != nil {
-		s.config.AutoDelayMS = *req.AutoDelayMS
-	}
-	if req.RandomDeclinePct != nil {
-		s.config.RandomDeclinePct = clamp(*req.RandomDeclinePct, 0, 100)
-	}
-	s.appendEvent("", "config_updated", "defaultScenario="+string(s.config.DefaultScenario))
-	return s.config
-}
-
-func (s *store) getConfig() mockConfig {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	return s.config
-}
-
-func (s *store) getEvents(limit int) []eventRecord {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	if limit <= 0 || limit > len(s.events) {
-		limit = len(s.events)
-	}
-	start := len(s.events) - limit
-	out := make([]eventRecord, limit)
-	copy(out, s.events[start:])
-	return out
-}
-
-func (s *store) resolveScenario(raw string) Scenario {
-	parsed, ok := parseScenario(raw)
-	if ok {
-		return parsed
-	}
-	return s.config.DefaultScenario
-}
-
-func (s *store) applyAutoResultIfDue(session *storedSession) {
-	// Меняем статус только когда пришло время автозавершения
-	if session.Status != SessionStatusProcessing {
-		return
-	}
-	if session.autoOutcome == "" || session.autoComplete.IsZero() {
-		return
-	}
-	if time.Now().Before(session.autoComplete) {
-		return
-	}
-
-	session.Status = session.autoOutcome
-	session.UpdatedAt = time.Now()
-	if session.Status == SessionStatusDeclined {
-		session.Error = "declined by mock scenario"
-	}
-	if session.Status == SessionStatusTimeout {
-		session.Error = "operation timeout in mock scenario"
-	}
-	s.appendEvent(session.ID, "auto_finalize", "status="+string(session.Status))
-
-	session.autoOutcome = ""
-	session.autoComplete = time.Time{}
-}
-
-type createSessionRequest struct {
-	ExternalTransactionID string `json:"externalTransactionId"`
-	AmountMinor           int64  `json:"amountMinor"`
-	Currency              string `json:"currency"`
-	Scenario              string `json:"scenario"`
-}
-
-type updateScenarioRequest struct {
-	Scenario string `json:"scenario"`
-}
-
-type updateConfigRequest struct {
-	DefaultScenario  *Scenario `json:"defaultScenario"`
-	AutoDelayMS      *int      `json:"autoDelayMs"`
-	RandomDeclinePct *int      `json:"randomDeclinePct"`
-}
-
-var errSessionNotFound = &apiError{
-	StatusCode: http.StatusNotFound,
-	Message:    "session not found",
-}
-
-type apiError struct {
-	StatusCode int
-	Message    string
-}
-
-func (e *apiError) Error() string {
-	return e.Message
-}
-
-func loadMockEnv() {
-	// Проверяем несколько путей, чтобы запускать сервис из разных директорий
-	candidates := []string{
-		"server/mocks/vendotek/.env",
-		"mocks/vendotek/.env",
-		".env",
-	}
-
-	for _, path := range candidates {
-		if err := godotenv.Load(path); err == nil {
-			log.Printf("mock vendotek: loaded env from %s", path)
-			return
+	if !isFinal(op.status) {
+		op.status = opFail
+		op.info = "cancelled by control device"
+		op.autoOutcome = ""
+		if s.cfg.debug {
+			log.Printf("vendotek mock: CANCEL id=%s", id)
 		}
 	}
-
-	log.Printf("mock vendotek: .env not found, using system environment")
+	return opToResp(op), nil
 }
 
+func (s *store) reversal(id string) (*saleResp, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	op, ok := s.ops[id]
+	if !ok {
+		return nil, &apiErr{http.StatusNotFound, "operation not found"}
+	}
+	s.tick(op)
+
+	if op.status == opCompleted {
+		op.status = opReverted
+		op.info = "reversal accepted"
+		if s.cfg.debug {
+			log.Printf("vendotek mock: REVERSAL id=%s", id)
+		}
+	}
+	return opToResp(op), nil
+}
+
+func (s *store) manualFinalize(id string, status opStatus, info string) (*saleResp, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	op, ok := s.ops[id]
+	if !ok {
+		return nil, &apiErr{http.StatusNotFound, "operation not found"}
+	}
+	if isFinal(op.status) {
+		return opToResp(op), nil
+	}
+
+	op.status = status
+	op.info = info
+	op.autoOutcome = ""
+	if status == opCompleted || status == opReverted {
+		op.sl = s.genSlip(op)
+	}
+	if s.cfg.debug {
+		log.Printf("vendotek mock: MANUAL id=%s status=%s", id, status)
+	}
+	return opToResp(op), nil
+}
+
+func (s *store) statusInfo() gin.H {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	termStatus := "ok"
+	for _, op := range s.ops {
+		s.tick(op)
+		if !isFinal(op.status) {
+			termStatus = "busy"
+			break
+		}
+	}
+	return gin.H{
+		"status":     termStatus,
+		"S/N":        s.cfg.serialNumber,
+		"info":       fmt.Sprintf("EzPOS mock, scenario=%s", s.cfg.defaultScenario),
+		"last_op_id": s.lastOpID,
+	}
+}
+
+func (s *store) tick(op *storedOp) {
+	if isFinal(op.status) {
+		return
+	}
+	now := time.Now()
+	if op.status == opCreated && !now.Before(op.waitCardAt) {
+		op.status = opWaitCard
+	}
+	if op.status == opWaitCard && !now.Before(op.progressAt) {
+		op.status = opInProgress
+	}
+	if op.status == opInProgress && !now.Before(op.finalizeAt) {
+		s.finalize(op)
+	}
+}
+
+func (s *store) finalize(op *storedOp) {
+	op.status = op.autoOutcome
+	switch op.autoOutcome {
+	case opCompleted:
+		op.info = "approved"
+		op.sl = s.genSlip(op)
+	case opFail:
+		if s.cfg.defaultScenario == scenarioTimeout {
+			op.info = "operation timeout"
+		} else {
+			op.info = "declined by mock scenario"
+		}
+	case opReverted:
+		op.info = "reverted"
+		op.sl = s.genSlip(op)
+	}
+	op.autoOutcome = ""
+}
+
+func (s *store) genSlip(op *storedOp) *slip {
+	return &slip{
+		PAN:          "411111******1111",
+		RRN:          fmt.Sprintf("%012d", time.Now().UnixMilli()%1_000_000_000_000),
+		ApprovalCode: fmt.Sprintf("%06d", s.rng.Intn(1_000_000)),
+		Amount:       op.sum,
+		Date:         time.Now().Format(time.RFC3339),
+		POSEntryMode: "07",
+		AppLabel:     "VISA",
+	}
+}
+
+func (s *store) chooseOutcome() opStatus {
+	switch s.cfg.defaultScenario {
+	case scenarioSuccess:
+		return opCompleted
+	case scenarioDecline:
+		return opFail
+	case scenarioReverted:
+		return opReverted
+	case scenarioTimeout:
+		return opFail
+	default:
+		if s.rng.Intn(100) < s.cfg.randomDeclinePct {
+			return opFail
+		}
+		return opCompleted
+	}
+}
+
+func opToResp(op *storedOp) *saleResp {
+	return &saleResp{
+		ID:     op.id,
+		Status: op.status,
+		Info:   op.info,
+		Slip:   op.sl,
+	}
+}
+
+func isFinal(s opStatus) bool {
+	return s == opCompleted || s == opReverted || s == opFail
+}
+
+func normalizeCurrency(s string) string {
+	v := strings.ToUpper(strings.TrimSpace(s))
+	if v == "" {
+		return "RUB"
+	}
+	return v
+}
+
+type apiErr struct {
+	code int
+	msg  string
+}
+
+func (e *apiErr) Error() string { return e.msg }
+
 func main() {
-	loadMockEnv()
+	loadEnv()
+	cfg := readConfig()
+	s := newStore(cfg)
 
-	mode := os.Getenv("GIN_MODE")
-	if mode == "" {
-		mode = gin.DebugMode
-	}
-	gin.SetMode(mode)
+	gin.SetMode(envStr("GIN_MODE", gin.DebugMode))
 
-	cfg := mockConfig{
-		DefaultScenario:  mustScenarioOrDefault(os.Getenv("VENDOTEK_DEFAULT_SCENARIO"), ScenarioApproved),
-		AutoDelayMS:      envIntOrDefault("VENDOTEK_AUTO_DELAY_MS", 1200),
-		RandomDeclinePct: clamp(envIntOrDefault("VENDOTEK_RANDOM_DECLINE_PCT", 20), 0, 100),
-	}
-	mockStore := newStore(cfg)
-
-	// Основные API роуты мок сервиса
 	r := gin.New()
 	r.Use(gin.Logger(), gin.Recovery())
 
-	r.GET("/healthz", func(c *gin.Context) {
-		c.JSON(http.StatusOK, gin.H{
-			"status":  "ok",
-			"service": "mock-vendotek",
-			"time":    time.Now().Format(time.RFC3339),
-			"config":  mockStore.getConfig(),
-		})
-	})
-
-	r.POST("/sessions", func(c *gin.Context) {
-		var req createSessionRequest
+	saleHandler := func(c *gin.Context) {
+		var req saleReq
 		if err := c.ShouldBindJSON(&req); err != nil {
 			c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request body"})
 			return
 		}
-		// Валидация базовых полей при создании сессии
-		if req.AmountMinor <= 0 {
-			c.JSON(http.StatusBadRequest, gin.H{"error": "amountMinor must be > 0"})
+		req.ID = strings.TrimSpace(req.ID)
+		if req.ID == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
 			return
 		}
-
-		if req.Scenario != "" {
-			if _, ok := parseScenario(req.Scenario); !ok {
-				c.JSON(http.StatusBadRequest, gin.H{"error": "invalid scenario"})
-				return
-			}
+		if cfg.debug {
+			raw, _ := json.Marshal(req)
+			log.Printf("vendotek mock: POST /sale body=%s", raw)
 		}
-		c.JSON(http.StatusCreated, mockStore.createSession(req))
-	})
-
-	r.GET("/sessions/:id", func(c *gin.Context) {
-		session, ok := mockStore.getSession(c.Param("id"))
-		if !ok {
-			c.JSON(http.StatusNotFound, gin.H{"error": "session not found"})
-			return
-		}
-		c.JSON(http.StatusOK, session)
-	})
-
-	r.POST("/sessions/:id/start", func(c *gin.Context) {
-		session, err := mockStore.startSession(c.Param("id"))
+		resp, err := s.create(req.ID, req.Sum, req.Currency)
 		if err != nil {
-			renderError(c, err)
+			renderErr(c, err)
 			return
 		}
-		c.JSON(http.StatusOK, session)
-	})
-
-	r.POST("/sessions/:id/approve", func(c *gin.Context) {
-		// Принудительно завершаем сессию как успешную
-		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusApproved, "")
-		if err != nil {
-			renderError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, session)
-	})
-
-	r.POST("/sessions/:id/decline", func(c *gin.Context) {
-		// Принудительно завершаем сессию как отклоненную
-		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusDeclined, "declined manually")
-		if err != nil {
-			renderError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, session)
-	})
-
-	r.POST("/sessions/:id/cancel", func(c *gin.Context) {
-		// Принудительно отменяем сессию
-		session, err := mockStore.finalizeSessionManually(c.Param("id"), SessionStatusCancelled, "cancelled manually")
-		if err != nil {
-			renderError(c, err)
-			return
-		}
-		c.JSON(http.StatusOK, session)
-	})
-
-	port := os.Getenv("PORT")
-	if port == "" {
-		port = "8082"
+		c.JSON(http.StatusOK, resp)
 	}
 
-	server := &http.Server{
+	r.POST("/async/cashless/sale", saleHandler)
+	r.POST("/async/cashless/sale/card", saleHandler)
+	r.POST("/async/cashless/sale/qr", saleHandler)
+
+	r.GET("/sale", func(c *gin.Context) {
+		id := strings.TrimSpace(c.Query("id"))
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+			return
+		}
+		resp, ok := s.get(id)
+		if !ok {
+			c.JSON(http.StatusNotFound, gin.H{"error": "operation not found"})
+			return
+		}
+		if cfg.debug {
+			raw, _ := json.Marshal(resp)
+			log.Printf("vendotek mock: GET /sale id=%s resp=%s", id, raw)
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	r.POST("/async/cashless/sale/cancel", func(c *gin.Context) {
+		id := strings.TrimSpace(c.Query("id"))
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+			return
+		}
+		resp, err := s.cancel(id)
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		if cfg.debug {
+			log.Printf("vendotek mock: POST /sale/cancel id=%s result=%s", id, resp.Status)
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	r.POST("/async/cashless/reversal", func(c *gin.Context) {
+		id := strings.TrimSpace(c.Query("id"))
+		if id == "" {
+			c.JSON(http.StatusBadRequest, gin.H{"error": "id is required"})
+			return
+		}
+		resp, err := s.reversal(id)
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	r.POST("/async/fiscal", func(c *gin.Context) {
+		c.JSON(http.StatusMethodNotAllowed, gin.H{"error": "fiscal not configured on terminal (variant B)"})
+	})
+
+	r.GET("/status", func(c *gin.Context) {
+		c.JSON(http.StatusOK, s.statusInfo())
+	})
+
+	r.POST("/show/qr", func(c *gin.Context) { c.Status(http.StatusOK) })
+	r.POST("/screen", func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	r.POST("/debug/ops/:id/approve", func(c *gin.Context) {
+		resp, err := s.manualFinalize(c.Param("id"), opCompleted, "approved manually")
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+	r.POST("/debug/ops/:id/decline", func(c *gin.Context) {
+		resp, err := s.manualFinalize(c.Param("id"), opFail, "declined manually")
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+	r.POST("/debug/ops/:id/reverted", func(c *gin.Context) {
+		resp, err := s.manualFinalize(c.Param("id"), opReverted, "reverted manually")
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+	r.POST("/debug/ops/:id/cancel", func(c *gin.Context) {
+		resp, err := s.manualFinalize(c.Param("id"), opFail, "cancelled manually")
+		if err != nil {
+			renderErr(c, err)
+			return
+		}
+		c.JSON(http.StatusOK, resp)
+	})
+
+	r.GET("/healthz", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{
+			"status":  "ok",
+			"service": "mock-vendotek-ezpos",
+			"time":    time.Now().Format(time.RFC3339),
+			"config": gin.H{
+				"defaultScenario":  cfg.defaultScenario,
+				"autoWaitMS":       cfg.autoWaitMS,
+				"autoDelayMS":      cfg.autoDelayMS,
+				"randomDeclinePct": cfg.randomDeclinePct,
+				"serialNumber":     cfg.serialNumber,
+			},
+		})
+	})
+
+	port := envStr("PORT", "8082")
+	srv := &http.Server{
 		Addr:              ":" + port,
 		Handler:           r,
 		ReadHeaderTimeout: 5 * time.Second,
@@ -466,105 +497,102 @@ func main() {
 		IdleTimeout:       30 * time.Second,
 	}
 
-	log.Printf("mock vendotek started on :%s", port)
-	log.Printf("default scenario=%s, auto delay=%dms, random decline=%d%%", cfg.DefaultScenario, cfg.AutoDelayMS, cfg.RandomDeclinePct)
+	log.Printf("mock vendotek (EzPOS): started on :%s", port)
+	log.Printf("mock vendotek: scenario=%s wait=%dms delay=%dms decline_pct=%d%% S/N=%s debug=%v",
+		cfg.defaultScenario, cfg.autoWaitMS, cfg.autoDelayMS,
+		cfg.randomDeclinePct, cfg.serialNumber, cfg.debug)
 
-	if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-		log.Fatalf("mock vendotek failed: %v", err)
+	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+		log.Fatalf("mock vendotek: failed: %v", err)
 	}
 }
 
-func renderError(c *gin.Context, err error) {
-	// Преобразуем внутренние ошибки в ответ API
-	apiErr, ok := err.(*apiError)
-	if !ok {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
+func loadEnv() {
+	candidates := []string{
+		"server/mocks/vendotek/.env",
+		"mocks/vendotek/.env",
+		".env",
+	}
+	for _, p := range candidates {
+		if err := godotenv.Load(p); err == nil {
+			log.Printf("mock vendotek: loaded env from %s", p)
+			return
+		}
+	}
+	log.Printf("mock vendotek: .env not found, using system environment")
+}
+
+func readConfig() mockConfig {
+	return mockConfig{
+		defaultScenario:  parseScenario(envStr("VENDOTEK_DEFAULT_SCENARIO", string(scenarioSuccess))),
+		autoWaitMS:       envInt("VENDOTEK_AUTO_WAIT_MS", 500),
+		autoDelayMS:      envInt("VENDOTEK_AUTO_DELAY_MS", 1500),
+		timeoutMS:        envInt("VENDOTEK_TIMEOUT_MS", 600000),
+		randomDeclinePct: clamp(envInt("VENDOTEK_RANDOM_DECLINE_PCT", 0), 0, 100),
+		serialNumber:     envStr("VENDOTEK_SERIAL_NUMBER", "MOCKVTK0001"),
+		debug:            envBool("MOCK_VENDOTEK_DEBUG", false),
+	}
+}
+
+func parseScenario(raw string) scenario {
+	s := scenario(strings.ToLower(strings.TrimSpace(raw)))
+	switch s {
+	case scenarioSuccess, scenarioDecline, scenarioTimeout, scenarioReverted:
+		return s
+	}
+	log.Printf("mock vendotek: unknown scenario %q, using %q", raw, scenarioSuccess)
+	return scenarioSuccess
+}
+
+func renderErr(c *gin.Context, err error) {
+	if e, ok := err.(*apiErr); ok {
+		c.JSON(e.code, gin.H{"error": e.msg})
 		return
 	}
-	c.JSON(apiErr.StatusCode, gin.H{"error": apiErr.Message})
+	c.JSON(http.StatusInternalServerError, gin.H{"error": "internal error"})
 }
 
-func chooseOutcomeForScenario(scenario Scenario, cfg mockConfig, rng *rand.Rand) SessionStatus {
-	// Выбираем итог на основе сценария для тестовых прогонов
-	switch scenario {
-	case ScenarioApproved:
-		return SessionStatusApproved
-	case ScenarioDeclined:
-		return SessionStatusDeclined
-	case ScenarioTimeout:
-		return SessionStatusTimeout
-	case ScenarioRandom:
-		if rng.Intn(100) < cfg.RandomDeclinePct {
-			return SessionStatusDeclined
-		}
-		return SessionStatusApproved
-	default:
-		return SessionStatusApproved
+func envStr(name, def string) string {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
 	}
+	return v
 }
 
-func parseScenario(raw string) (Scenario, bool) {
-	// Нормализуем ввод, чтобы принимать значения в разном регистре
-	normalized := Scenario(strings.ToLower(strings.TrimSpace(raw)))
-	if isKnownScenario(normalized) {
-		return normalized, true
+func envInt(name string, def int) int {
+	v := strings.TrimSpace(os.Getenv(name))
+	if v == "" {
+		return def
 	}
-	return "", false
-}
-
-func isKnownScenario(value Scenario) bool {
-	switch value {
-	case ScenarioApproved, ScenarioDeclined, ScenarioTimeout, ScenarioRandom:
-		return true
-	default:
-		return false
-	}
-}
-
-func mustScenarioOrDefault(raw string, fallback Scenario) Scenario {
-	if parsed, ok := parseScenario(raw); ok {
-		return parsed
-	}
-	return fallback
-}
-
-func normalizeCurrency(raw string) string {
-	// По умолчанию используем рубли
-	value := strings.ToUpper(strings.TrimSpace(raw))
-	if value == "" {
-		return "RUB"
-	}
-	return value
-}
-
-func isFinalStatus(status SessionStatus) bool {
-	switch status {
-	case SessionStatusApproved, SessionStatusDeclined, SessionStatusCancelled, SessionStatusTimeout:
-		return true
-	default:
-		return false
-	}
-}
-
-func envIntOrDefault(name string, fallback int) int {
-	// Безопасно читаем число из env и даем fallback при ошибке
-	raw := strings.TrimSpace(os.Getenv(name))
-	if raw == "" {
-		return fallback
-	}
-	value, err := strconv.Atoi(raw)
+	i, err := strconv.Atoi(v)
 	if err != nil {
-		return fallback
+		log.Printf("mock vendotek: %s=%q is not int, using default %d", name, v, def)
+		return def
 	}
-	return value
+	return i
 }
 
-func clamp(value int, min int, max int) int {
-	if value < min {
+func envBool(name string, def bool) bool {
+	v := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch v {
+	case "":
+		return def
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	}
+	log.Printf("mock vendotek: %s=%q is not bool, using default %v", name, v, def)
+	return def
+}
+
+func clamp(v, min, max int) int {
+	if v < min {
 		return min
 	}
-	if value > max {
+	if v > max {
 		return max
 	}
-	return value
+	return v
 }
