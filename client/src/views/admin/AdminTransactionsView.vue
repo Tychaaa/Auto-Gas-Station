@@ -357,6 +357,39 @@ onMounted(() => {
               </span>
             </div>
 
+            <!-- Банковский слип -->
+            <div v-if="selectedTx.paymentSlip" class="mb-6">
+              <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-3">
+                Банковский слип
+              </h5>
+              <div class="rounded-xl border border-fuel-olive/20 divide-y divide-fuel-olive/10 text-sm font-karla">
+                <div class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">Карта (PAN)</span>
+                  <span class="font-mono text-fuel-forest font-medium text-right">{{ selectedTx.paymentSlip.pan }}</span>
+                </div>
+                <div class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">RRN</span>
+                  <span class="font-mono text-fuel-forest text-right">{{ selectedTx.paymentSlip.rrn }}</span>
+                </div>
+                <div class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">Код авторизации</span>
+                  <span class="font-mono text-fuel-forest text-right">{{ selectedTx.paymentSlip.approvalCode }}</span>
+                </div>
+                <div v-if="selectedTx.paymentSlip.date" class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">Дата</span>
+                  <span class="text-fuel-forest text-right">{{ selectedTx.paymentSlip.date }}</span>
+                </div>
+                <div v-if="selectedTx.paymentSlip.appLabel" class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">Приложение</span>
+                  <span class="text-fuel-forest text-right">{{ selectedTx.paymentSlip.appLabel }}</span>
+                </div>
+                <div v-if="selectedTx.paymentSlip.posEntryMode" class="flex justify-between gap-2 px-4 py-2.5">
+                  <span class="text-fuel-olive shrink-0">Способ ввода</span>
+                  <span class="text-fuel-forest text-right">{{ selectedTx.paymentSlip.posEntryMode }}</span>
+                </div>
+              </div>
+            </div>
+
             <!-- Timeline событий -->
             <div v-if="selectedTx.events && selectedTx.events.length > 0">
               <h5 class="font-rubik font-semibold text-sm text-fuel-forest mb-4">
