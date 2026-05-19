@@ -4,8 +4,10 @@ import { computed, reactive, ref } from 'vue'
 import {
   checkDispenser as checkDispenserApi,
   checkKKT as checkKKTApi,
+  checkVendotek as checkVendotekApi,
   type AdminDispenserCheckResult,
   type AdminKKTCheckResult,
+  type AdminVendotekCheckResult,
 } from '@/api/admin.api'
 import { useWatchdogStateStore } from '@/stores/watchdogState'
 
@@ -70,24 +72,25 @@ async function checkKKT(): Promise<void> {
   }
 }
 
-// --- Stub equipment check (Vendotek) ---
+// --- Vendotek real check ---
 
-type StubStatus = 'idle' | 'checking' | 'no-data'
+const vendotek = reactive({
+  isChecking: false,
+  result: null as AdminVendotekCheckResult | null,
+  error: '',
+})
 
-function useStubCheck() {
-  const status = ref<StubStatus>('idle')
-
-  function check() {
-    status.value = 'checking'
-    setTimeout(() => {
-      status.value = 'no-data'
-    }, 600)
+async function checkVendotek(): Promise<void> {
+  vendotek.isChecking = true
+  vendotek.error = ''
+  try {
+    vendotek.result = await checkVendotekApi()
+  } catch (e) {
+    vendotek.error = e instanceof Error ? e.message : String(e)
+  } finally {
+    vendotek.isChecking = false
   }
-
-  return { status, check }
 }
-
-const vendotek = useStubCheck()
 
 // --- Dispenser real check ---
 
@@ -346,7 +349,7 @@ async function checkDispenser(): Promise<void> {
       </button>
     </div>
 
-    <!-- Платёжный терминал (Vendotek) -->
+    <!-- Платёжный терминал (Vendotek EzPOS) -->
     <div class="bg-white rounded-2xl border border-fuel-olive/20 p-8 flex flex-col gap-5 shadow-sm">
       <div class="flex flex-col md:flex-row md:items-start md:justify-between gap-4">
         <div>
@@ -354,49 +357,77 @@ async function checkDispenser(): Promise<void> {
             Платёжный терминал
           </h3>
           <p class="font-karla text-sm text-fuel-olive">
-            Vendotek — карточный эквайринг
+            Vendotek — карточный эквайринг (EzPOS)
           </p>
         </div>
 
         <div
-          v-if="vendotek.status.value === 'idle'"
-          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300"
-        >
-          <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
-          <span class="font-karla text-sm text-gray-700">Не проверялось</span>
-        </div>
-        <div
-          v-else-if="vendotek.status.value === 'checking'"
+          v-if="vendotek.isChecking"
           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300 animate-pulse"
         >
           <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
           <span class="font-karla text-sm text-gray-700">Проверка…</span>
         </div>
         <div
+          v-else-if="vendotek.result?.online"
+          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-fuel-lime/15 border border-fuel-lime/40"
+        >
+          <span class="h-2.5 w-2.5 rounded-full bg-fuel-lime" aria-hidden="true" />
+          <span class="font-karla text-sm text-fuel-forest">На связи</span>
+        </div>
+        <div
+          v-else-if="vendotek.result && !vendotek.result.online"
+          class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-red-50 border border-red-200"
+        >
+          <span class="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" aria-hidden="true" />
+          <span class="font-karla text-sm text-red-700">Нет связи</span>
+        </div>
+        <div
           v-else
           class="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-gray-100 border border-gray-300"
         >
           <span class="h-2.5 w-2.5 rounded-full bg-gray-400" aria-hidden="true" />
-          <span class="font-karla text-sm text-gray-700">Нет данных</span>
+          <span class="font-karla text-sm text-gray-700">Не проверялось</span>
         </div>
       </div>
 
-      <p class="font-karla text-sm text-fuel-olive">
-        Проверка состояния не реализована.
+      <div
+        v-if="vendotek.result"
+        class="grid grid-cols-1 md:grid-cols-3 gap-4 text-sm font-karla"
+      >
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Серийный номер</p>
+          <p class="text-fuel-forest font-medium font-mono">{{ vendotek.result.serialNumber || '—' }}</p>
+        </div>
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Последняя операция</p>
+          <p class="text-fuel-forest font-medium font-mono">{{ vendotek.result.lastOpId || '—' }}</p>
+        </div>
+        <div class="rounded-lg border border-fuel-olive/20 bg-fuel-cream/30 p-4">
+          <p class="text-xs uppercase tracking-widest text-fuel-olive mb-1">Проверено</p>
+          <p class="text-fuel-forest font-medium">{{ formatTimestamp(vendotek.result.checkedAt) }}</p>
+        </div>
+      </div>
+
+      <p v-if="vendotek.result?.error" class="font-karla text-sm text-red-600">
+        Ошибка: {{ vendotek.result.error }}
+      </p>
+      <p v-if="vendotek.error" class="font-karla text-sm text-red-600">
+        {{ vendotek.error }}
       </p>
 
       <button
         type="button"
-        :disabled="vendotek.status.value === 'checking'"
+        :disabled="vendotek.isChecking"
         class="font-rubik font-semibold text-lg px-8 py-4 rounded-xl transition-all duration-200
                bg-fuel-lime text-white hover:bg-fuel-forest active:scale-95
                shadow-md shadow-fuel-lime/25
                focus-visible:outline-hidden focus-visible:ring-2 focus-visible:ring-offset-2
                focus-visible:ring-offset-white focus-visible:ring-fuel-lime
                disabled:cursor-not-allowed disabled:opacity-60 cursor-pointer"
-        @click="vendotek.check()"
+        @click="checkVendotek"
       >
-        Проверить
+        {{ vendotek.isChecking ? 'Проверка…' : 'Проверить' }}
       </button>
     </div>
 
