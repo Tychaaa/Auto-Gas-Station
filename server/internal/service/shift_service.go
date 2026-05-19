@@ -169,11 +169,24 @@ func (s *ShiftService) Status(ctx context.Context) (ShiftStatusSnapshot, error) 
 		ShiftNumber: kktStatus.ShiftNumber,
 		ReceiptNum:  kktStatus.ReceiptNum,
 	}
-	if state, _ := s.shiftRepo.Load(ctx); state != nil {
-		t := state.OpenedAt
-		snap.OpenedAt = &t
-		snap.HoursOpen = time.Since(state.OpenedAt).Hours()
-		snap.HoursLeft = 24 - snap.HoursOpen
+	if kktStatus.IsOpen {
+		state, _ := s.shiftRepo.Load(ctx)
+		if state == nil {
+			// КKТ сообщает об открытой смене, но в SQLite нет записи (например, после перезапуска
+			// сервера, когда мок уже имел открытую смену). Сохраняем текущее время как точку отсчёта.
+			now := time.Now()
+			if saveErr := s.shiftRepo.Save(ctx, model.KKTShiftState{ShiftNumber: kktStatus.ShiftNumber, OpenedAt: now}); saveErr != nil {
+				s.log.Warn("shift_service.reconcile_state_failed", slog.Any("err", saveErr))
+			} else {
+				state = &model.KKTShiftState{ShiftNumber: kktStatus.ShiftNumber, OpenedAt: now}
+			}
+		}
+		if state != nil {
+			t := state.OpenedAt
+			snap.OpenedAt = &t
+			snap.HoursOpen = time.Since(state.OpenedAt).Hours()
+			snap.HoursLeft = 24 - snap.HoursOpen
+		}
 	}
 	return snap, nil
 }
