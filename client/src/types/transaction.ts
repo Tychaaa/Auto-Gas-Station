@@ -89,6 +89,16 @@ export interface Transaction {
   dispensePartial: boolean
 }
 
+export interface PaymentSlip {
+  pan: string
+  rrn: string
+  approvalCode: string
+  amount: number
+  date: string
+  posEntryMode: string
+  appLabel: string
+}
+
 export interface FuelPrice {
   fuelType: FuelType
   name: string

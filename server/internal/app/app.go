@@ -128,7 +128,7 @@ func New(cfg Config) (*App, error) {
 		service.ShiftServiceConfig{AutoCloseAt: cfg.FiscalKKT.AutoCloseAt},
 	)
 
-	paymentAdapter := payment.NewVendotekMockAdapter(cfg.VendotekMockBaseURL, 5*time.Second)
+	paymentAdapter := payment.NewVendotekEzPOSAdapter(cfg.VendotekBaseURL, cfg.VendotekTimeout, cfg.VendotekOpIDPrefix)
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
 		Port:     cfg.FuelSerial.Port,
 		Baud:     cfg.FuelSerial.Baud,
@@ -168,11 +168,12 @@ func New(cfg Config) (*App, error) {
 	shiftService.StartAutoClose()
 
 	transactionService := service.NewTransactionService(txRepo, priceService, cfg.SelectionPriceLock)
+	fiscalService := service.NewFiscalService(txRepo, fiscalAdapter)
+	paymentService := service.NewPaymentService(txRepo, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
+	transactionService.SetPaymentCanceller(paymentService)
 	if cfg.InactivitySweepEnabled {
 		transactionService.StartSweeper(context.Background(), cfg.InactivityTimeout, cfg.InactivitySweepInterval)
 	}
-	fiscalService := service.NewFiscalService(txRepo, fiscalAdapter)
-	paymentService := service.NewPaymentService(txRepo, priceService, paymentAdapter, fiscalService, cfg.SelectionPriceLock)
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
 	if err != nil {
@@ -194,7 +195,7 @@ func New(cfg Config) (*App, error) {
 	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService, shiftService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
-	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter)
+	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter, fiscalAdapter, paymentAdapter)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,

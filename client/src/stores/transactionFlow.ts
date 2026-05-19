@@ -3,6 +3,7 @@ import { defineStore } from 'pinia'
 
 import {
   ApiClientError,
+  cancelPayment,
   createTransaction,
   getFuelingProgress,
   getPaymentStatus,
@@ -433,6 +434,25 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     }
   }
 
+  // Отменяет оплату по запросу пользователя. Возвращает true при успехе.
+  async function cancelPaymentFlow(): Promise<boolean> {
+    const currentId = transactionId.value
+    if (!currentId) {
+      resetFlow()
+      return true
+    }
+    try {
+      stopPaymentPolling()
+      const updated = await cancelPayment(currentId)
+      transaction.value = updated
+      return true
+    } catch {
+      // Сеть недоступна или статус уже сменился — сбрасываем поток
+      resetFlow()
+      return true
+    }
+  }
+
   // Полностью сбрасывает сценарий транзакции
   function resetFlow(): void {
     stopPaymentPolling()
@@ -495,5 +515,6 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     resetForPaymentRetry,
     resetFlow,
     handleInactivityTimeout,
+    cancelPaymentFlow,
   }
 })

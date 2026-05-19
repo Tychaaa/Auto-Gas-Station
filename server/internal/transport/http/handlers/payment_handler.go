@@ -47,6 +47,21 @@ func (h *PaymentHandler) Status(c *gin.Context) {
 	c.JSON(nethttp.StatusOK, updated)
 }
 
+func (h *PaymentHandler) Cancel(c *gin.Context) {
+	id := c.Param("id")
+	if id == "" {
+		c.JSON(nethttp.StatusBadRequest, gin.H{"error": "transaction id is required"})
+		return
+	}
+
+	updated, err := h.payments.Cancel(c.Request.Context(), id)
+	if err != nil {
+		writePaymentError(c, err, service.ErrPaymentCancelStateConflict)
+		return
+	}
+	c.JSON(nethttp.StatusOK, updated)
+}
+
 func writePaymentError(c *gin.Context, err error, conflict error) {
 	switch {
 	case errors.Is(err, repository.ErrTransactionNotFound):

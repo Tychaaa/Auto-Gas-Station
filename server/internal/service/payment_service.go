@@ -11,8 +11,9 @@ import (
 )
 
 var (
-	ErrPaymentStartStateConflict  = errors.New("payment can only be started from selection")
-	ErrPaymentStatusStateConflict = errors.New("payment status sync is only allowed from payment_pending")
+	ErrPaymentStartStateConflict   = errors.New("payment can only be started from selection")
+	ErrPaymentStatusStateConflict  = errors.New("payment status sync is only allowed from payment_pending")
+	ErrPaymentCancelStateConflict  = errors.New("payment cancel is only allowed from payment_pending")
 )
 
 type PaymentService struct {
@@ -85,7 +86,7 @@ func (s *PaymentService) Start(ctx context.Context, id string) (*model.Transacti
 		if err := tx.MarkPaymentPending(); err != nil {
 			return err
 		}
-		tx.PaymentProvider = model.PaymentProviderVendotekMock
+		tx.PaymentProvider = model.PaymentProviderVendotekEzPOS
 		tx.PaymentSessionID = startResult.SessionID
 		tx.PaymentError = ""
 		return nil
@@ -158,6 +159,30 @@ func (s *PaymentService) maybeFiscalizeAfterPayment(ctx context.Context, tx *mod
 	return updated, nil
 }
 
+func (s *PaymentService) Cancel(ctx context.Context, id string) (*model.Transaction, error) {
+	txSnapshot, err := s.store.Get(id)
+	if err != nil {
+		return nil, err
+	}
+	if txSnapshot.Status != model.TransactionStatusPaymentPending {
+		return nil, ErrPaymentCancelStateConflict
+	}
+
+	sessionID := txSnapshot.PaymentSessionID
+	if sessionID != "" {
+		// Отправляем запрос на отмену терминалу; результат не гарантирован по спецификации EzPOS.
+		_ = s.payments.CancelPayment(ctx, sessionID)
+	}
+
+	updated, err := s.store.Update(id, func(tx *model.Transaction) error {
+		return tx.MarkPaymentCancelled("cancelled_by_user")
+	})
+	if err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
 func applyPaymentStatusToTransaction(tx *model.Transaction, status payment.StatusResult) error {
 	if tx.Status != model.TransactionStatusPaymentPending {
 		return ErrPaymentStatusStateConflict
@@ -169,6 +194,17 @@ func applyPaymentStatusToTransaction(tx *model.Transaction, status payment.Statu
 			return err
 		}
 		tx.PaymentError = ""
+		if status.Slip != nil {
+			tx.SetPaymentSlip(&model.PaymentSlip{
+				PAN:          status.Slip.PAN,
+				RRN:          status.Slip.RRN,
+				ApprovalCode: status.Slip.ApprovalCode,
+				Amount:       status.Slip.Amount,
+				Date:         status.Slip.Date,
+				POSEntryMode: status.Slip.POSEntryMode,
+				AppLabel:     status.Slip.AppLabel,
+			})
+		}
 	case "declined", "timeout", "cancelled":
 		msg := strings.TrimSpace(status.Error)
 		if msg == "" {

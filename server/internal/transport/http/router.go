@@ -45,6 +45,7 @@ func RegisterTransactionRoutes(r *gin.Engine, transactions *handlers.Transaction
 		tx.POST("/inactivity-timeout", transactions.InactivityTimeout)
 		tx.POST("/payment/start", payments.Start)
 		tx.POST("/payment/status", payments.Status)
+		tx.POST("/payment/cancel", payments.Cancel)
 		// Фискализация запускается автоматически после успешной оплаты (см. PaymentService).
 		// Состояние чека всегда отдается в полях FiscalStatus / ReceiptNumber транзакции.
 	}
@@ -79,6 +80,8 @@ func RegisterAdminRoutes(r *gin.Engine, auth AdminAuthConfig, admin *handlers.Ad
 		group.GET("/system/watchdog", watchdog.Status)
 		group.POST("/system/reboot", watchdog.Reboot)
 		group.POST("/equipment/dispenser/check", equipment.CheckDispenser)
+		group.POST("/equipment/kkt/check", equipment.CheckKKT)
+		group.POST("/equipment/vendotek/check", equipment.CheckVendotek)
 
 		group.GET("/shift/status", admin.ShiftStatus)
 		group.POST("/shift/open", admin.OpenShift)

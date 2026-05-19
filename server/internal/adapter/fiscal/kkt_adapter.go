@@ -364,6 +364,38 @@ func (a *KKTAdapter) CloseShiftZ(ctx context.Context) (ZReportResult, error) {
 	}, nil
 }
 
+// KKTCheckResult — результат быстрой проверки связи с ККТ (команда 0x10).
+type KKTCheckResult struct {
+	Online        bool
+	Mode          uint8
+	Submode       uint8
+	IsShiftOpen   bool
+	IsReceiptOpen bool
+	Error         string
+}
+
+// CheckKKT проверяет доступность ККТ командой ShortStatus (0x10).
+// Всегда возвращает значение; ошибка кладётся в поле Error.
+func (a *KKTAdapter) CheckKKT(ctx context.Context) KKTCheckResult {
+	tr, client, err := a.dialClient(ctx, a.log)
+	if err != nil {
+		return KKTCheckResult{Error: err.Error()}
+	}
+	defer tr.Close()
+
+	st, err := client.ShortStatus(ctx)
+	if err != nil {
+		return KKTCheckResult{Error: err.Error()}
+	}
+	return KKTCheckResult{
+		Online:        true,
+		Mode:          st.Mode,
+		Submode:       st.Submode,
+		IsShiftOpen:   st.IsShiftOpen(),
+		IsReceiptOpen: st.IsReceiptOpen(),
+	}
+}
+
 // ShiftStatus возвращает текущее состояние смены (опрашивает ККТ).
 func (a *KKTAdapter) ShiftStatus(ctx context.Context) (ShiftStatusResult, error) {
 	log := a.log

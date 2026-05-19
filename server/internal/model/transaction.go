@@ -66,6 +66,7 @@ type Transaction struct {
 	CreatedAt           time.Time
 	UpdatedAt           time.Time
 	AbandonReason       string
+	PaymentSlip *PaymentSlip
 	// Поля топливного контура от старта налива до его завершения
 	FuelingStatus    FuelingStatus
 	FuelingError     string
@@ -297,6 +298,23 @@ func (t *Transaction) MarkFiscalFailed(msg string) error {
 	t.FiscalError = msg
 	t.UpdatedAt = time.Now()
 	return nil
+}
+
+// MarkPaymentCancelled переводит payment_pending → failed по запросу клиента.
+func (t *Transaction) MarkPaymentCancelled(msg string) error {
+	if t.Status != TransactionStatusPaymentPending {
+		return errors.New("cancel is only allowed from payment_pending")
+	}
+	t.Status = TransactionStatusFailed
+	t.PaymentStatus = PaymentStatusDeclined
+	t.PaymentError = msg
+	t.UpdatedAt = time.Now()
+	return nil
+}
+
+// SetPaymentSlip сохраняет банковский слип из EzPOS-ответа.
+func (t *Transaction) SetPaymentSlip(slip *PaymentSlip) {
+	t.PaymentSlip = slip
 }
 
 // Abandon переводит транзакцию в abandoned только из состояния selection.

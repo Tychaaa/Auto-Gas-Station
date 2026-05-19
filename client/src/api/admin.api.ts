@@ -236,8 +236,20 @@ export interface AdminTransactionDetailsView {
   fuelingError: string
   // Прочее
   abandonReason: string
+  // Банковский слип
+  paymentSlip?: AdminPaymentSlipView
   // Журнал событий
   events: AdminTransactionEventView[]
+}
+
+export interface AdminPaymentSlipView {
+  pan: string
+  rrn: string
+  approvalCode: string
+  amount: number
+  date: string
+  posEntryMode: string
+  appLabel: string
 }
 
 interface AdminTransactionsResponse {
@@ -290,6 +302,34 @@ export interface AdminDispenserCheckResult {
 
 export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
   return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
+}
+
+export interface AdminKKTCheckResult {
+  online: boolean
+  mode: number
+  submode: number
+  isShiftOpen: boolean
+  isReceiptOpen: boolean
+  error?: string
+  checkedAt: string
+}
+
+export async function checkKKT(): Promise<AdminKKTCheckResult> {
+  return adminPost<AdminKKTCheckResult>('/admin/equipment/kkt/check', {})
+}
+
+export interface AdminVendotekCheckResult {
+  online: boolean
+  status?: string
+  serialNumber?: string
+  lastOpId?: string
+  info?: string
+  error?: string
+  checkedAt: string
+}
+
+export async function checkVendotek(): Promise<AdminVendotekCheckResult> {
+  return adminPost<AdminVendotekCheckResult>('/admin/equipment/vendotek/check', {})
 }
 
 // ─── Смена и отчёты ККТ ───────────────────────────────────────────────────────

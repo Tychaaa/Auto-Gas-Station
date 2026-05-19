@@ -74,8 +74,20 @@ type AdminTransactionDetailsView struct {
 	FuelingError     string  `json:"fuelingError"`
 	// Прочее
 	AbandonReason string `json:"abandonReason"`
+	// Банковский слип (заполняется после успешной оплаты через EzPOS)
+	PaymentSlip *PaymentSlipView `json:"paymentSlip,omitempty"`
 	// Журнал событий жизненного цикла
 	Events []TransactionEventDTO `json:"events"`
+}
+
+type PaymentSlipView struct {
+	PAN          string `json:"pan"`
+	RRN          string `json:"rrn"`
+	ApprovalCode string `json:"approvalCode"`
+	Amount       int64  `json:"amount"`
+	Date         string `json:"date"`
+	POSEntryMode string `json:"posEntryMode"`
+	AppLabel     string `json:"appLabel"`
 }
 
 // WatchdogStatusView — представление состояния ESP32 watchdog для админки.
@@ -103,4 +115,24 @@ type EquipmentDispenserCheckView struct {
 	Completed       bool      `json:"completed,omitempty"`
 	Error           string    `json:"error,omitempty"`
 	CheckedAt       time.Time `json:"checkedAt"`
+}
+
+type EquipmentKKTCheckView struct {
+	Online        bool      `json:"online"`
+	Mode          uint8     `json:"mode"`
+	Submode       uint8     `json:"submode"`
+	IsShiftOpen   bool      `json:"isShiftOpen"`
+	IsReceiptOpen bool      `json:"isReceiptOpen"`
+	Error         string    `json:"error,omitempty"`
+	CheckedAt     time.Time `json:"checkedAt"`
+}
+
+type EquipmentVendotekCheckView struct {
+	Online       bool      `json:"online"`
+	Status       string    `json:"status,omitempty"`
+	SerialNumber string    `json:"serialNumber,omitempty"`
+	LastOpID     string    `json:"lastOpId,omitempty"`
+	Info         string    `json:"info,omitempty"`
+	Error        string    `json:"error,omitempty"`
+	CheckedAt    time.Time `json:"checkedAt"`
 }
