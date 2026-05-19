@@ -43,7 +43,7 @@ const selectTransactionSQL = `SELECT
 	status, payment_status, fiscal_status, fueling_status,
 	payment_provider, payment_session_id, payment_error, fiscal_error, receipt_number,
 	fueling_error, fueling_session_id, dispensed_liters, dispense_complete, dispense_partial,
-	abandon_reason, payment_slip, created_at, updated_at
+	abandon_reason, payment_slip, created_at, updated_at, dispenser_id
 FROM transactions`
 
 const insertTransactionSQL = `INSERT INTO transactions (
@@ -53,7 +53,7 @@ const insertTransactionSQL = `INSERT INTO transactions (
 	status, payment_status, fiscal_status, fueling_status,
 	payment_provider, payment_session_id, payment_error, fiscal_error, receipt_number,
 	fueling_error, fueling_session_id, dispensed_liters, dispense_complete, dispense_partial,
-	abandon_reason, payment_slip, created_at, updated_at
+	abandon_reason, payment_slip, created_at, updated_at, dispenser_id
 ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const updateTransactionSQL = `UPDATE transactions SET
@@ -63,7 +63,7 @@ const updateTransactionSQL = `UPDATE transactions SET
 	status=?, payment_status=?, fiscal_status=?, fueling_status=?,
 	payment_provider=?, payment_session_id=?, payment_error=?, fiscal_error=?, receipt_number=?,
 	fueling_error=?, fueling_session_id=?, dispensed_liters=?, dispense_complete=?, dispense_partial=?,
-	abandon_reason=?, payment_slip=?, updated_at=?
+	abandon_reason=?, payment_slip=?, updated_at=?, dispenser_id=?
 WHERE id = ?`
 
 func (r *SQLiteTransactionRepository) Create(tx *model.Transaction) (*model.Transaction, error) {
@@ -332,6 +332,7 @@ func scanTransaction(s scanner) (*model.Transaction, error) {
 		&paymentSlipJSON,
 		&tx.CreatedAt,
 		&tx.UpdatedAt,
+		&tx.DispenserID,
 	)
 	if err != nil {
 		return nil, err
@@ -402,6 +403,7 @@ func insertArgs(tx *model.Transaction) []any {
 		marshalSlip(tx.PaymentSlip),
 		tx.CreatedAt.UTC(),
 		tx.UpdatedAt.UTC(),
+		tx.DispenserID,
 	}
 }
 
@@ -437,6 +439,7 @@ func updateArgs(tx *model.Transaction) []any {
 		tx.AbandonReason,
 		marshalSlip(tx.PaymentSlip),
 		tx.UpdatedAt.UTC(),
+		tx.DispenserID,
 		tx.ID,
 	}
 }

@@ -1,6 +1,9 @@
 package service
 
 import (
+	"encoding/json"
+	"log/slog"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +22,12 @@ type KioskState struct {
 	UpdatedAt   time.Time `json:"updatedAt"`
 }
 
+type kioskStateFile struct {
+	Maintenance bool      `json:"maintenance"`
+	Reason      string    `json:"reason"`
+	UpdatedAt   time.Time `json:"updatedAt"`
+}
+
 type KioskService struct {
 	mu          sync.RWMutex
 	maintenance bool
@@ -26,15 +35,56 @@ type KioskService struct {
 	screen      string
 	updatedAt   time.Time
 
+	stateFile string
+
 	subsMu      sync.Mutex
 	subscribers map[uint64]chan KioskState
 	nextSubID   uint64
 }
 
-func NewKioskService() *KioskService {
-	return &KioskService{
+func NewKioskService(stateFile string) *KioskService {
+	svc := &KioskService{
+		stateFile:   stateFile,
 		updatedAt:   time.Now().UTC(),
 		subscribers: make(map[uint64]chan KioskState),
+	}
+	if stateFile != "" {
+		data, err := os.ReadFile(stateFile)
+		if err == nil {
+			var s kioskStateFile
+			if err := json.Unmarshal(data, &s); err == nil {
+				svc.maintenance = s.Maintenance
+				svc.reason = s.Reason
+				svc.updatedAt = s.UpdatedAt
+			} else {
+				slog.Warn("kiosk state: malformed state file, starting with defaults", "err", err)
+			}
+		}
+		// os.ErrNotExist при первом запуске — норма
+	}
+	return svc
+}
+
+func (s *KioskService) persistState() {
+	if s.stateFile == "" {
+		return
+	}
+	data, err := json.Marshal(kioskStateFile{
+		Maintenance: s.maintenance,
+		Reason:      s.reason,
+		UpdatedAt:   s.updatedAt,
+	})
+	if err != nil {
+		slog.Error("kiosk state: marshal failed", "err", err)
+		return
+	}
+	tmp := s.stateFile + ".tmp"
+	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		slog.Error("kiosk state: write tmp failed", "err", err)
+		return
+	}
+	if err := os.Rename(tmp, s.stateFile); err != nil {
+		slog.Error("kiosk state: rename failed", "err", err)
 	}
 }
 
@@ -59,6 +109,7 @@ func (s *KioskService) SetMaintenance(enabled bool, reason string) KioskState {
 		s.reason = ""
 	}
 	s.updatedAt = time.Now().UTC()
+	s.persistState()
 	state := KioskState{
 		Maintenance: s.maintenance,
 		Reason:      s.reason,
@@ -122,6 +173,7 @@ func (s *KioskService) ClearMaintenanceIfReason(reason string) bool {
 	s.maintenance = false
 	s.reason = ""
 	s.updatedAt = time.Now().UTC()
+	s.persistState()
 	state := KioskState{
 		Maintenance: s.maintenance,
 		Reason:      s.reason,

@@ -14,8 +14,6 @@ export type FuelPricesResponse = FuelPrice[]
 
 // Тело запроса для старта отпуска топлива
 export interface FuelingStartRequest {
-  pumpId: string
-  nozzleId: string
   scenario?: string
 }
 

@@ -29,30 +29,31 @@ type serialConfig struct {
 	DataBits int
 	StopBits int
 	Parity   string
-	Address  int
 }
 
 type emulatorConfig struct {
-	serial      serialConfig
-	Scenario    string
-	StepLiters  float64
+	serial       serialConfig
+	Addresses    []int
+	Scenario     string
+	StepLiters   float64
 	DefaultPrice int64
 }
 
 type emulatorState struct {
-	statusCode   byte
-	reasonCode   byte
-	priceMinor   int64
-	doseLiters   int64
-	currentLiters int64
-	transaction  int64
-	scenario     string
+	statusCode     byte
+	reasonCode     byte
+	priceMinor     int64
+	doseLiters     int64
+	currentLiters  int64
+	transaction    int64
+	scenario       string
 	stepHundredths int64
 }
 
 func main() {
 	loadEnv()
 
+	addresses := loadAddresses()
 	cfg := emulatorConfig{
 		serial: serialConfig{
 			Port:     envString("MOCK_FUEL_PORT", "COM2"),
@@ -60,11 +61,27 @@ func main() {
 			DataBits: envInt("MOCK_FUEL_DATABITS", 7),
 			StopBits: envInt("MOCK_FUEL_STOPBITS", 2),
 			Parity:   envString("MOCK_FUEL_PARITY", "even"),
-			Address:  envInt("MOCK_FUEL_ADDRESS", 1),
 		},
+		Addresses:    addresses,
 		Scenario:     strings.ToLower(strings.TrimSpace(envString("MOCK_FUEL_SCENARIO", "normal"))),
 		StepLiters:   envFloat("MOCK_FUEL_STEP_LITERS", 0.7),
 		DefaultPrice: int64(envInt("MOCK_FUEL_DEFAULT_PRICE_MINOR", 5500)),
+	}
+
+	stepHundredths := int64(math.Round(cfg.StepLiters * 100))
+	if stepHundredths <= 0 {
+		stepHundredths = 50
+	}
+
+	states := make(map[int]*emulatorState, len(cfg.Addresses))
+	for _, addr := range cfg.Addresses {
+		states[addr] = &emulatorState{
+			statusCode:     '0',
+			reasonCode:     '0',
+			priceMinor:     cfg.DefaultPrice,
+			scenario:       cfg.Scenario,
+			stepHundredths: stepHundredths,
+		}
 	}
 
 	port, err := openSerial(cfg.serial)
@@ -73,18 +90,7 @@ func main() {
 	}
 	defer port.Close()
 
-	state := &emulatorState{
-		statusCode:      '0',
-		reasonCode:      '0',
-		priceMinor:      cfg.DefaultPrice,
-		scenario:        cfg.Scenario,
-		stepHundredths:  int64(math.Round(cfg.StepLiters * 100)),
-	}
-	if state.stepHundredths <= 0 {
-		state.stepHundredths = 50
-	}
-
-	log.Printf("fuel emulator started on %s address=%d scenario=%s", cfg.serial.Port, cfg.serial.Address, cfg.Scenario)
+	log.Printf("fuel emulator started on %s addresses=%v scenario=%s", cfg.serial.Port, cfg.Addresses, cfg.Scenario)
 
 	buffer := make([]byte, 256)
 	packet := make([]byte, 0, 64)
@@ -102,7 +108,7 @@ func main() {
 			continue
 		}
 
-		response, err := handlePacket(packet, state, cfg.serial.Address)
+		response, err := handlePacket(packet, states)
 		packet = packet[:0]
 		if err != nil {
 			log.Printf("fuel emulator packet error: %v", err)
@@ -117,7 +123,30 @@ func main() {
 	}
 }
 
-func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error) {
+func loadAddresses() []int {
+	if raw := strings.TrimSpace(os.Getenv("MOCK_FUEL_ADDRESSES")); raw != "" {
+		parts := strings.Split(raw, ",")
+		addrs := make([]int, 0, len(parts))
+		for _, p := range parts {
+			p = strings.TrimSpace(p)
+			if p == "" {
+				continue
+			}
+			n, err := strconv.Atoi(p)
+			if err != nil || n < 1 || n > 15 {
+				log.Printf("fuel emulator: invalid address %q in MOCK_FUEL_ADDRESSES, skipping", p)
+				continue
+			}
+			addrs = append(addrs, n)
+		}
+		if len(addrs) > 0 {
+			return addrs
+		}
+	}
+	return []int{envInt("MOCK_FUEL_ADDRESS", 1)}
+}
+
+func handlePacket(raw []byte, states map[int]*emulatorState) ([]byte, error) {
 	payload, err := decodePayload(raw)
 	if err != nil {
 		return nil, err
@@ -126,8 +155,9 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		return nil, errors.New("request payload is too short")
 	}
 
-	expectedAddress := byte(0x20 + address)
-	if payload[0] != expectedAddress {
+	address := int(payload[0]) - 0x20
+	state, ok := states[address]
+	if !ok {
 		return nil, nil
 	}
 
@@ -137,7 +167,8 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 
 	if shouldLogCommand(command) {
 		log.Printf(
-			"fuel emulator rx cmd=%q status=%c dose=%d current=%d tx=%d",
+			"fuel emulator rx addr=%d cmd=%q status=%c dose=%d current=%d tx=%d",
+			address,
 			command,
 			state.statusCode,
 			state.doseLiters,
@@ -174,7 +205,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.doseLiters = int64(math.Round(float64(amountMinor) * 100.0 / float64(state.priceMinor)))
 		state.currentLiters = 0
 		state.reasonCode = '0'
-		log.Printf("fuel emulator dose by amount liters=%d priceMinor=%d", state.doseLiters, state.priceMinor)
+		log.Printf("fuel emulator addr=%d dose by amount liters=%d priceMinor=%d", address, state.doseLiters, state.priceMinor)
 		return encodeShortResponse(aztACK), nil
 	case 'T':
 		if state.statusCode != '0' && state.statusCode != '1' {
@@ -187,7 +218,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.doseLiters = liters
 		state.currentLiters = 0
 		state.reasonCode = '0'
-		log.Printf("fuel emulator dose by liters liters=%d", state.doseLiters)
+		log.Printf("fuel emulator addr=%d dose by liters liters=%d", address, state.doseLiters)
 		return encodeShortResponse(aztACK), nil
 	case '2':
 		if state.statusCode != '0' && state.statusCode != '1' {
@@ -197,7 +228,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.reasonCode = '0'
 		state.currentLiters = 0
 		state.transaction++
-		log.Printf("fuel emulator start scenario=%s tx=%d status=%c", state.scenario, state.transaction, state.statusCode)
+		log.Printf("fuel emulator addr=%d start scenario=%s tx=%d status=%c", address, state.scenario, state.transaction, state.statusCode)
 		if state.scenario == "timeout" {
 			return nil, nil
 		}
@@ -207,7 +238,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		if err != nil {
 			return encodeShortResponse(aztCAN), nil
 		}
-		log.Printf("fuel emulator progress liters=%d status=%c", state.currentLiters, state.statusCode)
+		log.Printf("fuel emulator addr=%d progress liters=%d status=%c", address, state.currentLiters, state.statusCode)
 		return encodeDataResponse(append([]byte{'0'}, response...)), nil
 	case '5':
 		if state.statusCode != '4' {
@@ -217,16 +248,17 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		litersDigits, _ := encodeDigits(state.currentLiters, 6)
 		amountDigits, _ := encodeDigits(amountMinor, 8)
 		priceDigits, _ := encodeDigits(state.priceMinor, 4)
-		payload := append(litersDigits, amountDigits...)
-		payload = append(payload, priceDigits...)
+		p := append(litersDigits, amountDigits...)
+		p = append(p, priceDigits...)
 		log.Printf(
-			"fuel emulator totals liters=%d amountMinor=%d priceMinor=%d reason=%c",
+			"fuel emulator addr=%d totals liters=%d amountMinor=%d priceMinor=%d reason=%c",
+			address,
 			state.currentLiters,
 			amountMinor,
 			state.priceMinor,
 			state.reasonCode,
 		)
-		return encodeDataResponse(payload), nil
+		return encodeDataResponse(p), nil
 	case '8':
 		if state.statusCode != '4' {
 			return encodeShortResponse(aztCAN), nil
@@ -235,7 +267,7 @@ func handlePacket(raw []byte, state *emulatorState, address int) ([]byte, error)
 		state.reasonCode = '0'
 		state.currentLiters = 0
 		state.doseLiters = 0
-		log.Printf("fuel emulator confirm totals reset to idle")
+		log.Printf("fuel emulator addr=%d confirm totals reset to idle", address)
 		return encodeShortResponse(aztACK), nil
 	case 'P':
 		return encodeDataResponse([]byte("00000002")), nil

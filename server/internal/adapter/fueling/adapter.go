@@ -18,8 +18,7 @@ type CheckResult struct {
 
 type StartInput struct {
 	TransactionID  string
-	PumpID         string
-	NozzleID       string
+	AZTAddress     int
 	OrderMode      string
 	AmountRub      int64
 	Liters         float64
@@ -34,9 +33,8 @@ type StartResult struct {
 }
 
 type StatusInput struct {
-	SessionID string
-	PumpID    string
-	NozzleID  string
+	SessionID  string
+	AZTAddress int
 }
 
 type StatusResult struct {

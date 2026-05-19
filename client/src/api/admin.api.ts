@@ -41,6 +41,10 @@ async function adminDelete<T>(path: string): Promise<T> {
   return adminRequest(() => httpDelete<T>(path, authOptions()))
 }
 
+async function adminPut<T>(path: string, payload?: unknown): Promise<T> {
+  return adminRequest(() => httpPut<T>(path, payload, authOptions()))
+}
+
 function authOptions(): { headers?: Record<string, string> } {
   if (!cachedAuthorizationHeader) {
     return {}
@@ -300,8 +304,41 @@ export interface AdminDispenserCheckResult {
   checkedAt: string
 }
 
-export async function checkDispenser(): Promise<AdminDispenserCheckResult> {
-  return adminPost<AdminDispenserCheckResult>('/admin/equipment/dispenser/check', {})
+export async function checkDispenser(id = 1): Promise<AdminDispenserCheckResult> {
+  return adminPost<AdminDispenserCheckResult>(`/admin/equipment/dispenser/${id}/check`, {})
+}
+
+export interface AdminDispenserView {
+  id: number
+  fuelType: string
+  label: string
+  enabled: boolean
+  updatedAt: string
+  // TODO(топливомер): добавить tankVolume и tankRemaining когда будет интеграция с датчиком уровня топлива
+}
+
+export interface UpdateDispenserPayload {
+  fuelType: string
+  enabled: boolean
+}
+
+export async function listDispensers(): Promise<AdminDispenserView[]> {
+  return adminGet<AdminDispenserView[]>('/admin/dispensers')
+}
+
+export async function updateDispenser(
+  id: number,
+  payload: UpdateDispenserPayload,
+): Promise<AdminDispenserView> {
+  return adminPut<AdminDispenserView>(`/admin/dispensers/${id}`, payload)
+}
+
+export async function addDispenser(): Promise<AdminDispenserView> {
+  return adminPost<AdminDispenserView>('/admin/dispensers')
+}
+
+export async function deleteDispenser(id: number): Promise<void> {
+  return adminDelete(`/admin/dispensers/${id}`)
 }
 
 export interface AdminKKTCheckResult {

@@ -15,7 +15,6 @@ type SerialConfig struct {
 	DataBits int
 	StopBits int
 	Parity   string
-	Address  int
 }
 
 type Transport interface {

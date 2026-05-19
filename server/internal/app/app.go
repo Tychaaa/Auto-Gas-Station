@@ -88,7 +88,8 @@ func New(cfg Config) (*App, error) {
 	}
 
 	priceService := service.NewPriceService(priceRepo)
-	kioskService := service.NewKioskService()
+	kioskStateFile := filepath.Join(filepath.Dir(cfg.DBPath), "kiosk_state.json")
+	kioskService := service.NewKioskService(kioskStateFile)
 
 	seeder := service.NewPricingSeeder(priceService, cfg.PricingSeedPath)
 	if err := seeder.SeedIfEmpty(context.Background()); err != nil {
@@ -116,6 +117,20 @@ func New(cfg Config) (*App, error) {
 		kioskService.SetMaintenance(true, service.KioskReasonNoPrices)
 	}
 
+	dispenserRepo, err := repository.NewSQLiteDispenserRepository(cfg.DBPath)
+	if err != nil {
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, err
+	}
+	if err := dispenserRepo.InitDispensers(cfg.FuelSerial.DispenserAddresses); err != nil {
+		_ = dispenserRepo.Close()
+		_ = txRepo.Close()
+		_ = priceRepo.Close()
+		return nil, fmt.Errorf("init dispensers: %w", err)
+	}
+	dispenserService := service.NewDispenserService(dispenserRepo)
+
 	// ShiftService создаётся до KKTAdapter — adapter будет установлен через SetAdapter.
 	shiftService := service.NewShiftService(
 		nil,
@@ -129,15 +144,16 @@ func New(cfg Config) (*App, error) {
 	)
 
 	paymentAdapter := payment.NewVendotekEzPOSAdapter(cfg.VendotekBaseURL, cfg.VendotekTimeout, cfg.VendotekOpIDPrefix)
+  
 	fuelingAdapter, err := adapterfueling.NewAZTSerialAdapter(azt.SerialConfig{
 		Port:     cfg.FuelSerial.Port,
 		Baud:     cfg.FuelSerial.Baud,
 		DataBits: cfg.FuelSerial.DataBits,
 		StopBits: cfg.FuelSerial.StopBits,
 		Parity:   cfg.FuelSerial.Parity,
-		Address:  cfg.FuelSerial.Address,
 	})
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = calcReportsRepo.Close()
 		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
@@ -155,6 +171,7 @@ func New(cfg Config) (*App, error) {
 		ZReportSink:         shiftService,
 	})
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = calcReportsRepo.Close()
 		_ = shiftReportsRepo.Close()
 		_ = headerLinesRepo.Close()
@@ -177,6 +194,7 @@ func New(cfg Config) (*App, error) {
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = headerLinesRepo.Close()
 		_ = kktShiftRepo.Close()
 		_ = txRepo.Close()
@@ -191,11 +209,12 @@ func New(cfg Config) (*App, error) {
 
 	transactionHandler := handlers.NewTransactionHandler(transactionService, priceService)
 	paymentHandler := handlers.NewPaymentHandler(paymentService)
-	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter)
+	fuelingHandler := handlers.NewFuelingHandler(txRepo, fuelingAdapter, dispenserService)
 	adminHandler := handlers.NewAdminHandler(priceService, txRepo, kioskService, shiftService)
 	kioskHandler := handlers.NewKioskHandler(kioskService)
 	watchdogHandler := handlers.NewWatchdogHandler(watchdogService)
 	equipmentHandler := handlers.NewEquipmentHandler(fuelingAdapter, fiscalAdapter, paymentAdapter)
+	dispenserHandler := handlers.NewDispenserHandler(dispenserService, config.MaxDispenserCount)
 
 	router := transporthttp.NewRouter(
 		cfg.AllowedOrigins,
@@ -207,6 +226,7 @@ func New(cfg Config) (*App, error) {
 		kioskHandler,
 		watchdogHandler,
 		equipmentHandler,
+		dispenserHandler,
 	)
 	server := &http.Server{
 		Addr:              "127.0.0.1:" + cfg.Port,

@@ -13,7 +13,7 @@ import {
   startPayment,
   updateSelection,
 } from '@/api'
-import type { FuelingStartRequest, OrderSummary, SelectionPayload, Transaction } from '@/types'
+import type { OrderSummary, SelectionPayload, Transaction } from '@/types'
 
 // Ошибка для отображения в UI
 export interface TransactionFlowError {
@@ -30,11 +30,9 @@ const DEFAULT_SELECTION_DRAFT: SelectionPayload = {
   liters: 0,
 }
 
-type FuelingConfig = Required<FuelingStartRequest>
+type FuelingConfig = { scenario: string }
 
 const DEFAULT_FUELING_CONFIG: FuelingConfig = {
-  pumpId: '1',
-  nozzleId: '1',
   scenario: '',
 }
 
