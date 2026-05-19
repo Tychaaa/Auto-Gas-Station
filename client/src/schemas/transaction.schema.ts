@@ -59,6 +59,8 @@ export const fuelPriceSchema = z.object({
   priceVersionId: z.number().int(),
   versionTag: z.string(),
   effectiveFrom: z.string(),
+  dispenserId: z.number().int(),
+  dispenserLabel: z.string(),
 })
 
 export const fuelPricesResponseSchema = z.object({

@@ -108,4 +108,6 @@ export interface FuelPrice {
   priceVersionId: number
   versionTag: string
   effectiveFrom: string
+  dispenserId: number
+  dispenserLabel: string
 }
