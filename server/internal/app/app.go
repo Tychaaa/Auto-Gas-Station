@@ -53,7 +53,8 @@ func New(cfg Config) (*App, error) {
 	}
 
 	priceService := service.NewPriceService(priceRepo)
-	kioskService := service.NewKioskService()
+	kioskStateFile := filepath.Join(filepath.Dir(cfg.DBPath), "kiosk_state.json")
+	kioskService := service.NewKioskService(kioskStateFile)
 
 	seeder := service.NewPricingSeeder(priceService, cfg.PricingSeedPath)
 	if err := seeder.SeedIfEmpty(context.Background()); err != nil {
@@ -107,6 +108,7 @@ func New(cfg Config) (*App, error) {
 		Logger: slog.Default(),
 	})
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, fmt.Errorf("init fiscal adapter: %w", err)
@@ -121,6 +123,7 @@ func New(cfg Config) (*App, error) {
 
 	watchdogAdapter, err := buildWatchdogAdapter(cfg.Watchdog)
 	if err != nil {
+		_ = dispenserRepo.Close()
 		_ = txRepo.Close()
 		_ = priceRepo.Close()
 		return nil, err
