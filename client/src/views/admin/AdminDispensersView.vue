@@ -118,7 +118,7 @@ async function onSave(dispenser: AdminDispenserView): Promise<void> {
             :class="drafts[dispenser.id]?.enabled ? 'bg-white' : 'bg-gray-50'"
           >
             <span class="font-karla text-xs text-fuel-olive uppercase tracking-widest">
-              {{ dispenser.label }}
+              {{ dispenser.label }} — Резервуар {{ dispenser.id }}
             </span>
 
             <span
