@@ -194,7 +194,7 @@ async function onSave(dispenser: AdminDispenserView): Promise<void> {
             </div>
 
             <span class="font-karla text-xs text-fuel-olive/40">
-              {{ formatTimestamp(dispenser.updatedAt) }}
+              Обновлено: {{ formatTimestamp(dispenser.updatedAt) }}
             </span>
           </div>
         </div>
