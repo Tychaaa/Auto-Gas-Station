@@ -41,6 +41,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
   const transaction = ref<Transaction | null>(null)
   const transactionId = ref<string | null>(null)
   const selectionDraft = ref<SelectionPayload>({ ...DEFAULT_SELECTION_DRAFT })
+  const selectedDispenserId = ref<number | null>(null)
 
   // Флаги сетевых действий и поллинга
   const isSubmittingSelection = ref(false)
@@ -171,6 +172,10 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
       ...patch,
     }
     clearError()
+  }
+
+  function setSelectedDispenserId(id: number | null): void {
+    selectedDispenserId.value = id
   }
 
   // Обновляет конфигурацию топливной колонки для API
@@ -458,6 +463,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     transaction.value = null
     transactionId.value = null
     selectionDraft.value = { ...DEFAULT_SELECTION_DRAFT }
+    selectedDispenserId.value = null
     fuelingConfig.value = { ...DEFAULT_FUELING_CONFIG }
     isSubmittingSelection.value = false
     isStartingPayment.value = false
@@ -481,6 +487,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     transaction,
     transactionId,
     selectionDraft,
+    selectedDispenserId,
     isSubmittingSelection,
     isStartingPayment,
     isStartingFueling,
@@ -499,6 +506,7 @@ export const useTransactionFlowStore = defineStore('transactionFlow', () => {
     canStartFueling,
     orderSummary,
     setSelectionDraft,
+    setSelectedDispenserId,
     setFuelingConfig,
     submitSelection,
     refreshTransaction,
