@@ -90,12 +90,11 @@ func (h *DispenserHandler) Delete(c *gin.Context) {
 
 func toDispenserView(d *model.Dispenser) dto.DispenserView {
 	return dto.DispenserView{
-		ID:            d.ID,
-		FuelType:      d.FuelType,
-		Label:         d.Label,
-		Enabled:       d.Enabled,
-		TankVolume:    5000,
-		TankRemaining: 3200,
-		UpdatedAt:     d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		ID:        d.ID,
+		FuelType:  d.FuelType,
+		Label:     d.Label,
+		Enabled:   d.Enabled,
+		UpdatedAt: d.UpdatedAt.UTC().Format("2006-01-02T15:04:05Z"),
+		// TODO(топливомер): заполнить TankVolume и TankRemaining из сервиса датчика уровня топлива
 	}
 }
