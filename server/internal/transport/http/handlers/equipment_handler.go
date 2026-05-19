@@ -7,6 +7,7 @@ import (
 
 	"AUTO-GAS-STATION/server/internal/adapter/fiscal"
 	"AUTO-GAS-STATION/server/internal/adapter/fueling"
+	"AUTO-GAS-STATION/server/internal/adapter/payment"
 	"AUTO-GAS-STATION/server/internal/dto"
 	"github.com/gin-gonic/gin"
 )
@@ -17,12 +18,17 @@ type KKTChecker interface {
 }
 
 type EquipmentHandler struct {
-	fuelingAdapter fueling.Adapter
-	kktChecker     KKTChecker
+	fuelingAdapter   fueling.Adapter
+	kktChecker       KKTChecker
+	vendotekChecker  payment.VendotekChecker
 }
 
-func NewEquipmentHandler(fuelingAdapter fueling.Adapter, kktChecker KKTChecker) *EquipmentHandler {
-	return &EquipmentHandler{fuelingAdapter: fuelingAdapter, kktChecker: kktChecker}
+func NewEquipmentHandler(fuelingAdapter fueling.Adapter, kktChecker KKTChecker, vendotekChecker payment.VendotekChecker) *EquipmentHandler {
+	return &EquipmentHandler{
+		fuelingAdapter:  fuelingAdapter,
+		kktChecker:      kktChecker,
+		vendotekChecker: vendotekChecker,
+	}
 }
 
 func (h *EquipmentHandler) CheckDispenser(c *gin.Context) {
@@ -63,5 +69,21 @@ func (h *EquipmentHandler) CheckKKT(c *gin.Context) {
 		IsReceiptOpen: result.IsReceiptOpen,
 		Error:         result.Error,
 		CheckedAt:     time.Now().UTC(),
+	})
+}
+
+func (h *EquipmentHandler) CheckVendotek(c *gin.Context) {
+	ctx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+	defer cancel()
+
+	result := h.vendotekChecker.CheckVendotek(ctx)
+	c.JSON(http.StatusOK, dto.EquipmentVendotekCheckView{
+		Online:       result.Online,
+		Status:       result.Status,
+		SerialNumber: result.SerialNumber,
+		LastOpID:     result.LastOpID,
+		Info:         result.Info,
+		Error:        result.Error,
+		CheckedAt:    time.Now().UTC(),
 	})
 }

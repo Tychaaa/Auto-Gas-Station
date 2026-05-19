@@ -2,6 +2,7 @@ package repository
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sync/atomic"
@@ -42,7 +43,7 @@ const selectTransactionSQL = `SELECT
 	status, payment_status, fiscal_status, fueling_status,
 	payment_provider, payment_session_id, payment_error, fiscal_error, receipt_number,
 	fueling_error, fueling_session_id, dispensed_liters, dispense_complete, dispense_partial,
-	abandon_reason, created_at, updated_at
+	abandon_reason, payment_slip, created_at, updated_at
 FROM transactions`
 
 const insertTransactionSQL = `INSERT INTO transactions (
@@ -52,8 +53,8 @@ const insertTransactionSQL = `INSERT INTO transactions (
 	status, payment_status, fiscal_status, fueling_status,
 	payment_provider, payment_session_id, payment_error, fiscal_error, receipt_number,
 	fueling_error, fueling_session_id, dispensed_liters, dispense_complete, dispense_partial,
-	abandon_reason, created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+	abandon_reason, payment_slip, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 const updateTransactionSQL = `UPDATE transactions SET
 	fuel_type=?, order_mode=?, amount_rub=?, liters=?, preset=?,
@@ -62,7 +63,7 @@ const updateTransactionSQL = `UPDATE transactions SET
 	status=?, payment_status=?, fiscal_status=?, fueling_status=?,
 	payment_provider=?, payment_session_id=?, payment_error=?, fiscal_error=?, receipt_number=?,
 	fueling_error=?, fueling_session_id=?, dispensed_liters=?, dispense_complete=?, dispense_partial=?,
-	abandon_reason=?, updated_at=?
+	abandon_reason=?, payment_slip=?, updated_at=?
 WHERE id = ?`
 
 func (r *SQLiteTransactionRepository) Create(tx *model.Transaction) (*model.Transaction, error) {
@@ -296,6 +297,7 @@ func scanTransaction(s scanner) (*model.Transaction, error) {
 	var pricingSnapshotAt, priceLockedUntil sql.NullTime
 	var priceWasRepriced, dispenseComplete, dispensePartial int64
 	var status, paymentStatus, fiscalStatus, fuelingStatus string
+	var paymentSlipJSON sql.NullString
 
 	err := s.Scan(
 		&tx.ID,
@@ -327,6 +329,7 @@ func scanTransaction(s scanner) (*model.Transaction, error) {
 		&dispenseComplete,
 		&dispensePartial,
 		&tx.AbandonReason,
+		&paymentSlipJSON,
 		&tx.CreatedAt,
 		&tx.UpdatedAt,
 	)
@@ -344,7 +347,25 @@ func scanTransaction(s scanner) (*model.Transaction, error) {
 	tx.FiscalStatus = model.FiscalStatus(fiscalStatus)
 	tx.FuelingStatus = model.FuelingStatus(fuelingStatus)
 
+	if paymentSlipJSON.Valid && paymentSlipJSON.String != "" {
+		var slip model.PaymentSlip
+		if err := json.Unmarshal([]byte(paymentSlipJSON.String), &slip); err == nil {
+			tx.PaymentSlip = &slip
+		}
+	}
+
 	return &tx, nil
+}
+
+func marshalSlip(slip *model.PaymentSlip) sql.NullString {
+	if slip == nil {
+		return sql.NullString{}
+	}
+	raw, err := json.Marshal(slip)
+	if err != nil {
+		return sql.NullString{}
+	}
+	return sql.NullString{String: string(raw), Valid: true}
 }
 
 func insertArgs(tx *model.Transaction) []any {
@@ -378,6 +399,7 @@ func insertArgs(tx *model.Transaction) []any {
 		btoi(tx.DispenseComplete),
 		btoi(tx.DispensePartial),
 		tx.AbandonReason,
+		marshalSlip(tx.PaymentSlip),
 		tx.CreatedAt.UTC(),
 		tx.UpdatedAt.UTC(),
 	}
@@ -413,6 +435,7 @@ func updateArgs(tx *model.Transaction) []any {
 		btoi(tx.DispenseComplete),
 		btoi(tx.DispensePartial),
 		tx.AbandonReason,
+		marshalSlip(tx.PaymentSlip),
 		tx.UpdatedAt.UTC(),
 		tx.ID,
 	}

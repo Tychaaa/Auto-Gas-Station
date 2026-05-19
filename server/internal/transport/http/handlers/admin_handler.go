@@ -177,7 +177,23 @@ func toAdminTransactionDetailsView(tx *model.Transaction, events []model.Transac
 		DispensePartial:   tx.DispensePartial,
 		FuelingError:      tx.FuelingError,
 		AbandonReason:     tx.AbandonReason,
+		PaymentSlip:       toPaymentSlipView(tx.PaymentSlip),
 		Events:            eventDTOs,
+	}
+}
+
+func toPaymentSlipView(slip *model.PaymentSlip) *dto.PaymentSlipView {
+	if slip == nil {
+		return nil
+	}
+	return &dto.PaymentSlipView{
+		PAN:          slip.PAN,
+		RRN:          slip.RRN,
+		ApprovalCode: slip.ApprovalCode,
+		Amount:       slip.Amount,
+		Date:         slip.Date,
+		POSEntryMode: slip.POSEntryMode,
+		AppLabel:     slip.AppLabel,
 	}
 }
 
