@@ -178,7 +178,7 @@ func computeQuantityMicro(tx *model.Transaction) (int64, error) {
 // В текущем сценарии терминал Vendotek - всегда безналичный платёж.
 func paymentKindForTransaction(tx *model.Transaction) (fiscal.PaymentKind, error) {
 	switch strings.TrimSpace(tx.PaymentProvider) {
-	case model.PaymentProviderVendotekMock:
+	case model.PaymentProviderVendotekMock, model.PaymentProviderVendotekEzPOS:
 		return fiscal.PaymentCashless, nil
 	case "":
 		return "", errors.New("transaction has no payment provider")
