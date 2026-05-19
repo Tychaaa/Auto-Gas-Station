@@ -11,6 +11,8 @@ const router = useRouter()
 const store = useTransactionFlowStore()
 
 const isNavigatingToResult = ref(false)
+const isCancelling = ref(false)
+const showCancelConfirm = ref(false)
 
 const transaction = computed(() => store.transaction)
 const hasPendingStatus = computed(() => transaction.value?.status === 'payment_pending')
@@ -36,6 +38,18 @@ watch(
     }
   },
 )
+
+async function confirmCancel(): Promise<void> {
+  showCancelConfirm.value = false
+  isCancelling.value = true
+  try {
+    await store.cancelPaymentFlow()
+    isNavigatingToResult.value = true
+    await router.push('/payment/result')
+  } finally {
+    isCancelling.value = false
+  }
+}
 
 onUnmounted(() => {
   store.stopPaymentPolling()
@@ -90,6 +104,43 @@ onUnmounted(() => {
           <p class="font-karla text-sm text-red-700">
             {{ errorMessage }}
           </p>
+        </div>
+
+        <!-- Кнопка отмены -->
+        <div v-if="!showCancelConfirm" class="flex justify-center">
+          <button
+            :disabled="isCancelling || !hasPendingStatus"
+            class="font-karla text-sm text-fuel-olive/70 underline underline-offset-2 hover:text-fuel-forest disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+            @click="showCancelConfirm = true"
+          >
+            Отменить оплату
+          </button>
+        </div>
+
+        <!-- Подтверждение отмены -->
+        <div
+          v-else
+          class="rounded-xl border border-amber-200 bg-amber-50 px-5 py-4 flex flex-col gap-3"
+        >
+          <p class="font-karla text-sm text-amber-800 font-medium">
+            Отменить оплату? Терминал будет освобождён.
+          </p>
+          <div class="flex gap-3">
+            <button
+              :disabled="isCancelling"
+              class="flex-1 rounded-lg bg-red-600 px-4 py-2 font-karla text-sm text-white hover:bg-red-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              @click="confirmCancel"
+            >
+              {{ isCancelling ? 'Отменяем...' : 'Да, отменить' }}
+            </button>
+            <button
+              :disabled="isCancelling"
+              class="flex-1 rounded-lg border border-fuel-olive/30 px-4 py-2 font-karla text-sm text-fuel-forest hover:bg-fuel-cream/70 disabled:opacity-50 transition-colors"
+              @click="showCancelConfirm = false"
+            >
+              Назад
+            </button>
+          </div>
         </div>
 
       </section>
