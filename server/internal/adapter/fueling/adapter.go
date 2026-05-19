@@ -19,8 +19,6 @@ type CheckResult struct {
 type StartInput struct {
 	TransactionID  string
 	AZTAddress     int
-	OrderMode      string
-	AmountRub      int64
 	Liters         float64
 	UnitPriceMinor int64
 	Scenario       string

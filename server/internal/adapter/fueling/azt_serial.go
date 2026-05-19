@@ -3,7 +3,6 @@ package fueling
 import (
 	"context"
 	"fmt"
-	"math"
 
 	"AUTO-GAS-STATION/server/internal/adapter/azt"
 )
@@ -34,33 +33,18 @@ func (a *AZTSerialAdapter) StartFueling(ctx context.Context, input StartInput) (
 		return StartResult{}, fmt.Errorf("fuel dispenser is in unexpected state %q", status.StatusCode)
 	}
 
-	priceMinor, err := calculatePriceMinor(input)
-	if err != nil {
-		return StartResult{}, err
-	}
+	priceMinor := calculatePriceMinor(input)
 	if priceMinor > 0 {
 		if err := client.SetPrice(ctx, priceMinor); err != nil {
 			return StartResult{}, err
 		}
 	}
 
-	switch input.OrderMode {
-	case "amount":
-		if input.AmountRub <= 0 {
-			return StartResult{}, fmt.Errorf("amountRub must be > 0")
-		}
-		if err := client.SetAmountDose(ctx, input.AmountRub*100); err != nil {
-			return StartResult{}, err
-		}
-	case "liters":
-		if input.Liters <= 0 {
-			return StartResult{}, fmt.Errorf("liters must be > 0")
-		}
-		if err := client.SetLitersDose(ctx, input.Liters); err != nil {
-			return StartResult{}, err
-		}
-	default:
-		return StartResult{}, fmt.Errorf("unsupported order mode %q", input.OrderMode)
+	if input.Liters <= 0 {
+		return StartResult{}, fmt.Errorf("liters must be > 0")
+	}
+	if err := client.SetLitersDose(ctx, input.Liters); err != nil {
+		return StartResult{}, err
 	}
 
 	if err := client.Authorize(ctx); err != nil {
@@ -153,13 +137,6 @@ func (a *AZTSerialAdapter) newClient(address int) (*azt.MasterClient, error) {
 	return client, nil
 }
 
-func calculatePriceMinor(input StartInput) (int64, error) {
-	if input.UnitPriceMinor > 0 {
-		return input.UnitPriceMinor, nil
-	}
-	if input.OrderMode == "amount" && input.Liters > 0 {
-		price := float64(input.AmountRub*100) / input.Liters
-		return int64(math.Round(price)), nil
-	}
-	return 0, nil
+func calculatePriceMinor(input StartInput) int64 {
+	return input.UnitPriceMinor
 }

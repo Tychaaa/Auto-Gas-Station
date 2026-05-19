@@ -9,6 +9,7 @@ import (
 	"AUTO-GAS-STATION/server/internal/model"
 	"AUTO-GAS-STATION/server/internal/repository"
 	"AUTO-GAS-STATION/server/internal/service"
+
 	"github.com/gin-gonic/gin"
 )
 
@@ -66,8 +67,6 @@ func (h *FuelingHandler) Start(c *gin.Context) {
 	startResult, err := h.adapter.StartFueling(c.Request.Context(), fueling.StartInput{
 		TransactionID:  tx.ID,
 		AZTAddress:     dispenser.ID,
-		OrderMode:      tx.OrderMode,
-		AmountRub:      tx.AmountRub,
 		Liters:         tx.Liters,
 		UnitPriceMinor: tx.UnitPriceMinor,
 		Scenario:       req.Scenario,
