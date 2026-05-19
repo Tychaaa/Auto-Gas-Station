@@ -22,6 +22,8 @@ type FuelPriceView struct {
 	PriceVersionID int64   `json:"priceVersionId"`
 	VersionTag     string  `json:"versionTag"`
 	EffectiveFrom  string  `json:"effectiveFrom"`
+	DispenserID    int     `json:"dispenserId"`
+	DispenserLabel string  `json:"dispenserLabel"`
 }
 
 type PriceVersion struct {
